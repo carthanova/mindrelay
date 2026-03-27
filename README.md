@@ -15,6 +15,7 @@ MemoryMesh is a local-first browser extension that automatically captures your A
 - **Stores** everything locally on your device — no servers, no accounts, no cloud
 - **Browses** your saved memory via a built-in popup and full library view
 - **Imports** Obsidian notes as memory (.md or .json)
+- **Stores up to 200 conversations** — oldest auto-removed when the limit is reached
 
 The more you use it, the more valuable it gets. Memory compounds.
 
