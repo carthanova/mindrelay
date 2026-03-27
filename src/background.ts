@@ -40,6 +40,43 @@ async function runMigration(): Promise<void> {
 
 runMigration().catch(console.error)
 
+// ─── One-time migration from memorymesh_db → mindrelay_db (rename) ──────────
+
+const DB_RENAME_FLAG = "mindrelay_db_rename_migrated"
+
+async function runDbRenameMigration(): Promise<void> {
+  const flag = await chrome.storage.local.get(DB_RENAME_FLAG)
+  if (flag[DB_RENAME_FLAG]) return
+
+  const transcripts = await new Promise<Transcript[]>((resolve) => {
+    const req = indexedDB.open("memorymesh_db", 1)
+    req.onerror = () => resolve([])
+    req.onblocked = () => resolve([])
+    req.onsuccess = () => {
+      const db = req.result
+      if (!db.objectStoreNames.contains("transcripts")) { db.close(); resolve([]); return }
+      const tx = db.transaction("transcripts", "readonly")
+      const all = tx.objectStore("transcripts").getAll()
+      all.onsuccess = () => { db.close(); resolve(all.result as Transcript[]) }
+      all.onerror = () => { db.close(); resolve([]) }
+    }
+    req.onupgradeneeded = (e) => {
+      // DB didn't exist before — nothing to migrate
+      ;(e.target as IDBOpenDBRequest).transaction?.abort()
+      resolve([])
+    }
+  })
+
+  if (transcripts.length > 0) {
+    for (const t of transcripts) await dbPut(t)
+    log(`[MindRelay] migrated ${transcripts.length} transcripts from memorymesh_db`)
+  }
+
+  await chrome.storage.local.set({ [DB_RENAME_FLAG]: true })
+}
+
+runDbRenameMigration().catch(console.error)
+
 // ─── Storage message handler ─────────────────────────────────────────────────
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
