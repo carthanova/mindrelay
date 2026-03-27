@@ -6,6 +6,10 @@ MindRelay is a local-first browser extension that automatically captures your AI
 
 > Built with AI assistance (Claude) by someone who had an idea and ran with it. Not here to take credit as a software engineer — just someone having fun building his own ideas with AI.
 
+[![Buy Me A Coffee](https://img.shields.io/badge/Buy%20Me%20A%20Coffee-%23FFDD00?style=flat&logo=buy-me-a-coffee&logoColor=black)](https://buymeacoffee.com/carthanova)
+[![GitHub Issues](https://img.shields.io/github/issues/carthanova/mindrelay?style=flat&color=7c6af7)](https://github.com/carthanova/mindrelay/issues)
+[![GitHub Discussions](https://img.shields.io/github/discussions/carthanova/mindrelay?style=flat&color=4285f4)](https://github.com/carthanova/mindrelay/discussions)
+
 ---
 
 ## What It Does
