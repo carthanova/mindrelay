@@ -60,6 +60,9 @@ const TITLE_WEIGHT = 5      // title match — strongest topic signal
 const FIRST_MSG_WEIGHT = 3  // first user message — sets the topic
 const BODY_FREQ_CAP = 4     // max freq contribution per term in body text
 const MIN_SCORE = 1         // below this = not relevant, don't inject
+const SCORE_GAP_RATIO = 0.5 // secondary results must score ≥ 50% of top score
+                             // prevents loosely-related transcripts from riding
+                             // along when only one is clearly the best match
 
 function scoreTranscript(queryTerms: Set<string>, transcript: Transcript): number {
   if (queryTerms.size === 0) return 0
@@ -110,7 +113,7 @@ export function rankTranscripts(
   const queryTerms = new Set(tokenize(query))
   if (queryTerms.size === 0) return []
 
-  return transcripts
+  const scored = transcripts
     .map((t) => ({ t, score: scoreTranscript(queryTerms, t) }))
     .filter(({ score }) => score >= MIN_SCORE)
     .sort((a, b) =>
@@ -119,6 +122,12 @@ export function rankTranscripts(
         : b.t.timestamp - a.t.timestamp // recency tiebreaker
     )
     .slice(0, topN)
+
+  if (scored.length === 0) return []
+
+  const topScore = scored[0].score
+  return scored
+    .filter(({ score }) => score >= topScore * SCORE_GAP_RATIO)
     .map(({ t }) => t)
 }
 
