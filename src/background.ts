@@ -19,8 +19,8 @@ updateBadge().catch(console.error)
 
 // ─── One-time migration from chrome.storage.local → IndexedDB ───────────────
 
-const LEGACY_KEY = "memorymesh_transcripts"
-const MIGRATION_FLAG = "memorymesh_idb_migrated"
+const LEGACY_KEY = "mindrelay_transcripts"
+const MIGRATION_FLAG = "mindrelay_idb_migrated"
 
 async function runMigration(): Promise<void> {
   const flag = await chrome.storage.local.get(MIGRATION_FLAG)
@@ -31,7 +31,7 @@ async function runMigration(): Promise<void> {
 
   if (legacy.length > 0) {
     for (const t of legacy) await dbPut(t)
-    log(`[MemoryMesh] migrated ${legacy.length} transcripts to IndexedDB`)
+    log(`[MindRelay] migrated ${legacy.length} transcripts to IndexedDB`)
   }
 
   await chrome.storage.local.set({ [MIGRATION_FLAG]: true })
@@ -47,7 +47,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   handleMessage(msg)
     .then(sendResponse)
     .catch((err) => {
-      console.error("[MemoryMesh] background storage error:", err)
+      console.error("[MindRelay] background storage error:", err)
       sendResponse(null)
     })
   return true

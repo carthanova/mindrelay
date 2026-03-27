@@ -1,6 +1,6 @@
 {
-  "name": "memorymesh",
-  "displayName": "MemoryMesh",
+  "name": "mindrelay",
+  "displayName": "MindRelay",
   "version": "1.0.0",
   "description": "Your AI memory across every platform. Captures context from Claude, ChatGPT, Gemini & Grok — automatically.",
   "scripts": {

@@ -24,32 +24,32 @@ let pendingContext: string | null = null
 let contextInjected = false
 let trustedNonce: string | null = null
 
-window.addEventListener("memorymesh:memory-loaded", (e: Event) => {
+window.addEventListener("mindrelay:memory-loaded", (e: Event) => {
   const detail = (e as CustomEvent<string>).detail
   try {
     const parsed = JSON.parse(detail) as { nonce: string; data: Transcript[] }
     if (!parsed.nonce || !Array.isArray(parsed.data)) return
     if (!trustedNonce) trustedNonce = parsed.nonce
-    else if (parsed.nonce !== trustedNonce) { warn("[MemoryMesh] Grok: nonce mismatch — ignored"); return }
+    else if (parsed.nonce !== trustedNonce) { warn("[MindRelay] Grok: nonce mismatch — ignored"); return }
     allTranscripts = parsed.data
     contextInjected = false
-    log("[MemoryMesh] Grok: loaded", allTranscripts.length, "transcripts")
+    log("[MindRelay] Grok: loaded", allTranscripts.length, "transcripts")
   } catch (err) {
-    warn("[MemoryMesh] Grok: failed to parse memory-loaded event:", err)
+    warn("[MindRelay] Grok: failed to parse memory-loaded event:", err)
   }
 })
 
-window.addEventListener("memorymesh:context", (e: Event) => {
+window.addEventListener("mindrelay:context", (e: Event) => {
   const detail = (e as CustomEvent<string>).detail
   try {
     const parsed = JSON.parse(detail) as { nonce: string; context: string }
     if (!parsed.nonce || !parsed.context) return
-    if (!trustedNonce || parsed.nonce !== trustedNonce) { warn("[MemoryMesh] Grok: context nonce mismatch — ignored"); return }
+    if (!trustedNonce || parsed.nonce !== trustedNonce) { warn("[MindRelay] Grok: context nonce mismatch — ignored"); return }
     pendingContext = parsed.context
     contextInjected = false
-    log("[MemoryMesh] Grok: manual context ready")
+    log("[MindRelay] Grok: manual context ready")
   } catch {
-    warn("[MemoryMesh] Grok: failed to parse context event")
+    warn("[MindRelay] Grok: failed to parse context event")
   }
 })
 
@@ -62,7 +62,7 @@ history.pushState = function (...args: Parameters<typeof history.pushState>) {
     pendingContext = null
     contextInjected = false
     // Keep allTranscripts — avoids race where user sends before async reload completes
-    window.dispatchEvent(new CustomEvent("memorymesh:grok-new-chat"))
+    window.dispatchEvent(new CustomEvent("mindrelay:grok-new-chat"))
   }
 }
 
@@ -102,7 +102,7 @@ window.fetch = async function (
           const ranked = rankTranscripts(userQuery, allTranscripts, 3)
           if (ranked.length > 0) {
             context = buildCombinedContext(ranked)
-            log("[MemoryMesh] Grok: smart retrieval matched", ranked.length, "transcripts")
+            log("[MindRelay] Grok: smart retrieval matched", ranked.length, "transcripts")
           }
         }
       }
@@ -113,7 +113,7 @@ window.fetch = async function (
           body.message = `${context}\n\n---\n\n${body.message}`
           contextInjected = true
           init = { ...init, body: JSON.stringify(body) }
-          log("[MemoryMesh] Grok: context injected into body.message")
+          log("[MindRelay] Grok: context injected into body.message")
         } else {
           // Alternate format: body.responses[0] or body.query
           const alt =
@@ -127,23 +127,23 @@ window.fetch = async function (
             ;(body.responses as string[])[0] = `${context}\n\n---\n\n${(body.responses as string[])[0]}`
             contextInjected = true
             init = { ...init, body: JSON.stringify(body) }
-            log("[MemoryMesh] Grok: context injected into body.responses[0]")
+            log("[MindRelay] Grok: context injected into body.responses[0]")
           } else if (alt === "query") {
             body.query = `${context}\n\n---\n\n${body.query as string}`
             contextInjected = true
             init = { ...init, body: JSON.stringify(body) }
-            log("[MemoryMesh] Grok: context injected into body.query")
+            log("[MindRelay] Grok: context injected into body.query")
           } else {
-            warn("[MemoryMesh] Grok: unexpected body structure, skipping injection:", Object.keys(body))
+            warn("[MindRelay] Grok: unexpected body structure, skipping injection:", Object.keys(body))
           }
         }
       }
     } catch (err) {
-      warn("[MemoryMesh] Grok fetch intercept error:", err)
+      warn("[MindRelay] Grok fetch intercept error:", err)
     }
   }
 
   return originalFetch(input, init)
 }
 
-log("[MemoryMesh] Grok fetch interceptor active (main world)")
+log("[MindRelay] Grok fetch interceptor active (main world)")

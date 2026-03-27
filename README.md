@@ -1,8 +1,8 @@
-# 🧠 MemoryMesh
+# 🧠 MindRelay
 
 **Your AI memory across every platform.**
 
-MemoryMesh is a local-first browser extension that automatically captures your AI conversations and injects relevant context into new chats — so you never have to re-explain yourself when switching between AI models.
+MindRelay is a local-first browser extension that automatically captures your AI conversations and injects relevant context into new chats — so you never have to re-explain yourself when switching between AI models.
 
 > Built with AI assistance (Claude) by someone who had an idea and ran with it. Not here to take credit as a software engineer — just someone having fun building his own ideas with AI.
 

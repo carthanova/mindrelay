@@ -1,4 +1,4 @@
-# MemoryMesh Privacy Policy
+# MindRelay Privacy Policy
 
 **Last updated: March 27, 2026**
 
@@ -6,13 +6,13 @@
 
 ## Overview
 
-MemoryMesh is a local-first browser extension. Your data stays on your device. We do not operate servers, collect analytics, or transmit your conversations anywhere.
+MindRelay is a local-first browser extension. Your data stays on your device. We do not operate servers, collect analytics, or transmit your conversations anywhere.
 
 ---
 
 ## What We Collect
 
-MemoryMesh captures text from AI conversations you have on:
+MindRelay captures text from AI conversations you have on:
 - Claude (claude.ai)
 - ChatGPT (chatgpt.com)
 - Gemini (gemini.google.com)
@@ -24,7 +24,7 @@ This includes the messages you send and the responses you receive during those c
 
 ## Where It's Stored
 
-All data is stored exclusively in **IndexedDB** — a local browser database on your device. It is never uploaded, synced, or transmitted to any server. MemoryMesh has no backend.
+All data is stored exclusively in **IndexedDB** — a local browser database on your device. It is never uploaded, synced, or transmitted to any server. MindRelay has no backend.
 
 ---
 
@@ -46,7 +46,7 @@ Saved conversations are used solely to provide the core feature: injecting relev
 
 ## Your Control
 
-You can delete any saved conversation at any time from the MemoryMesh popup. You can clear all data by source or all at once. Uninstalling the extension removes all stored data.
+You can delete any saved conversation at any time from the MindRelay popup. You can clear all data by source or all at once. Uninstalling the extension removes all stored data.
 
 ---
 

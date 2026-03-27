@@ -207,7 +207,7 @@ export default function IndexPopup() {
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
             <span style={{ fontSize: 17 }}>🧠</span>
-            <span style={{ fontWeight: 700, fontSize: 14, color: "#fff", letterSpacing: "-0.01em" }}>MemoryMesh</span>
+            <span style={{ fontWeight: 700, fontSize: 14, color: "#fff", letterSpacing: "-0.01em" }}>MindRelay</span>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
             {transcripts.length > 0 && (

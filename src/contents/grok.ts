@@ -41,7 +41,7 @@ function findAiEls(): Element[] {
 // `---` separator becomes an <hr> (no text), so we locate the context by its
 // known end markers instead.
 function cleanUserText(raw: string): string {
-  if (!raw.startsWith("[MemoryMesh")) return raw
+  if (!raw.startsWith("[MindRelay")) return raw
   for (const marker of ["[End of retrieved memory.]", "[End of context.]"]) {
     const idx = raw.indexOf(marker)
     if (idx !== -1) return raw.slice(idx + marker.length).trim()
@@ -107,9 +107,9 @@ async function captureAndSave(): Promise<void> {
     })
 
     showSaveToast()
-    log("[MemoryMesh] Grok saved:", title)
+    log("[MindRelay] Grok saved:", title)
   } catch (err) {
-    console.error("[MemoryMesh] Grok captureAndSave error:", err)
+    console.error("[MindRelay] Grok captureAndSave error:", err)
   }
 }
 
@@ -120,7 +120,7 @@ async function loadMemoryForNewChat(): Promise<void> {
   const others = all.filter((t) => t.source !== "grok")
   if (others.length === 0) return
 
-  window.dispatchEvent(new CustomEvent("memorymesh:memory-loaded", {
+  window.dispatchEvent(new CustomEvent("mindrelay:memory-loaded", {
     detail: JSON.stringify({ nonce: MM_NONCE, data: others })
   }))
 }
@@ -128,9 +128,9 @@ async function loadMemoryForNewChat(): Promise<void> {
 // Inject from popup
 chrome.runtime.onMessage.addListener((msg, sender) => {
   if (sender.id !== chrome.runtime.id) return
-  if (msg.type === "memorymesh:inject" && typeof msg.context === "string" && msg.context.length <= 100_000) {
-    window.dispatchEvent(new CustomEvent("memorymesh:context", { detail: JSON.stringify({ nonce: MM_NONCE, context: msg.context }) }))
-    log("[MemoryMesh] injected from popup into Grok")
+  if (msg.type === "mindrelay:inject" && typeof msg.context === "string" && msg.context.length <= 100_000) {
+    window.dispatchEvent(new CustomEvent("mindrelay:context", { detail: JSON.stringify({ nonce: MM_NONCE, context: msg.context }) }))
+    log("[MindRelay] injected from popup into Grok")
   }
 })
 
@@ -148,7 +148,7 @@ const observer = new MutationObserver(() => {
 observer.observe(document.body, { childList: true, subtree: true })
 
 // New chat detection via main world pushState override
-window.addEventListener("memorymesh:grok-new-chat", () => {
+window.addEventListener("mindrelay:grok-new-chat", () => {
   setTimeout(loadMemoryForNewChat, 300)
 })
 
@@ -168,4 +168,4 @@ if (location.pathname === "/" || location.pathname === "/i/grok") {
   setTimeout(loadMemoryForNewChat, 600)
 }
 
-log("[MemoryMesh] Grok script loaded:", window.location.href)
+log("[MindRelay] Grok script loaded:", window.location.href)

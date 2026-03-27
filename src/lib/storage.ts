@@ -102,7 +102,7 @@ export function buildContextSummary(transcript: Transcript): string {
     return `${label}: ${body}`
   })
   return [
-    `[MemoryMesh — context from ${transcript.source} | ${date}]`,
+    `[MindRelay — context from ${transcript.source} | ${date}]`,
     `The user is continuing work from a previous AI session. Use this context immediately without asking them to re-explain. If they reference a project, idea, or topic — assume it is the one below. Pick up naturally from where they left off.`,
     `Topic: "${transcript.title}"`,
     ``,

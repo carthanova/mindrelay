@@ -7,7 +7,7 @@
 
 import type { Transcript } from "./storage"
 
-const DB_NAME = "memorymesh_db"
+const DB_NAME = "mindrelay_db"
 const DB_VERSION = 1
 const STORE = "transcripts"
 

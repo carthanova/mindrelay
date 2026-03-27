@@ -145,7 +145,7 @@ export function buildCombinedContext(transcripts: Transcript[]): string {
   })
 
   return [
-    `[MemoryMesh — retrieved memory | ${date}]`,
+    `[MindRelay — retrieved memory | ${date}]`,
     `The following context was retrieved from your conversation history based on relevance to this topic. Use it immediately — do not ask the user to re-explain. Pick up naturally from where they left off.`,
     "",
     sections.join("\n\n"),

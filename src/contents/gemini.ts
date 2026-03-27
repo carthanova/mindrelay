@@ -30,11 +30,11 @@ function findUserEls(): Element[] {
   const p2 = Array.from(document.querySelectorAll(
     '[data-testid*="user-query"], [data-testid*="human-turn"], [class*="user-query"]'
   ))
-  if (p2.length > 0) { warn("[MemoryMesh] Gemini user selector: using fallback P2"); return p2 }
+  if (p2.length > 0) { warn("[MindRelay] Gemini user selector: using fallback P2"); return p2 }
 
   // P3 — last resort: aria role="region" labelled as user input
   const p3 = Array.from(document.querySelectorAll('[aria-label*="You"], [aria-label*="user"]'))
-  if (p3.length > 0) { warn("[MemoryMesh] Gemini user selector: using fallback P3"); return p3 }
+  if (p3.length > 0) { warn("[MindRelay] Gemini user selector: using fallback P3"); return p3 }
 
   return []
 }
@@ -48,11 +48,11 @@ function findAiEls(): Element[] {
   const p2 = Array.from(document.querySelectorAll(
     '[data-testid*="model-response"], [data-testid*="assistant-turn"], [class*="model-response"]'
   ))
-  if (p2.length > 0) { warn("[MemoryMesh] Gemini AI selector: using fallback P2"); return p2 }
+  if (p2.length > 0) { warn("[MindRelay] Gemini AI selector: using fallback P2"); return p2 }
 
   // P3 — last resort: aria labels for Gemini responses
   const p3 = Array.from(document.querySelectorAll('[aria-label*="Gemini"], [aria-label*="response"]'))
-  if (p3.length > 0) { warn("[MemoryMesh] Gemini AI selector: using fallback P3"); return p3 }
+  if (p3.length > 0) { warn("[MindRelay] Gemini AI selector: using fallback P3"); return p3 }
 
   return []
 }
@@ -107,7 +107,7 @@ function hashMessages(messages: Message[]): string {
 async function captureAndSave(): Promise<void> {
   try {
     const messages = extractMessages()
-    log("[MemoryMesh] Gemini extractMessages:", messages.length)
+    log("[MindRelay] Gemini extractMessages:", messages.length)
     if (messages.length < 2) return
 
     const hash = hashMessages(messages)
@@ -128,9 +128,9 @@ async function captureAndSave(): Promise<void> {
     })
 
     showSaveToast()
-    log("[MemoryMesh] Gemini saved:", title)
+    log("[MindRelay] Gemini saved:", title)
   } catch (err) {
-    console.error("[MemoryMesh] Gemini captureAndSave error:", err)
+    console.error("[MindRelay] Gemini captureAndSave error:", err)
   }
 }
 
@@ -141,7 +141,7 @@ async function loadMemoryForNewChat(): Promise<void> {
   const others = all.filter((t) => t.source !== "gemini")
   if (others.length === 0) return
 
-  window.dispatchEvent(new CustomEvent("memorymesh:memory-loaded", {
+  window.dispatchEvent(new CustomEvent("mindrelay:memory-loaded", {
     detail: JSON.stringify({ nonce: MM_NONCE, data: others })
   }))
 }
@@ -149,9 +149,9 @@ async function loadMemoryForNewChat(): Promise<void> {
 // Inject from popup
 chrome.runtime.onMessage.addListener((msg, sender) => {
   if (sender.id !== chrome.runtime.id) return
-  if (msg.type === "memorymesh:inject" && typeof msg.context === "string" && msg.context.length <= 100_000) {
-    window.dispatchEvent(new CustomEvent("memorymesh:context", { detail: JSON.stringify({ nonce: MM_NONCE, context: msg.context }) }))
-    log("[MemoryMesh] injected from popup into Gemini")
+  if (msg.type === "mindrelay:inject" && typeof msg.context === "string" && msg.context.length <= 100_000) {
+    window.dispatchEvent(new CustomEvent("mindrelay:context", { detail: JSON.stringify({ nonce: MM_NONCE, context: msg.context }) }))
+    log("[MindRelay] injected from popup into Gemini")
   }
 })
 
@@ -169,7 +169,7 @@ const observer = new MutationObserver(() => {
 observer.observe(document.body, { childList: true, subtree: true })
 
 // Main world detects pushState to /app instantly and notifies us
-window.addEventListener("memorymesh:gemini-new-chat", () => {
+window.addEventListener("mindrelay:gemini-new-chat", () => {
   setTimeout(loadMemoryForNewChat, 300)
 })
 
@@ -188,4 +188,4 @@ if (location.pathname === "/app" || location.pathname === "/app/") {
   setTimeout(loadMemoryForNewChat, 800)
 }
 
-log("[MemoryMesh] Gemini script loaded:", window.location.href)
+log("[MindRelay] Gemini script loaded:", window.location.href)

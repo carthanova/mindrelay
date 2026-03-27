@@ -1,7 +1,7 @@
 # Chrome Web Store Listing Copy
 
 ## Extension Name
-MemoryMesh
+MindRelay
 
 ## Short Description (132 chars max — currently 91)
 Your AI memory across every platform. Captures context from Claude, ChatGPT, Gemini & Grok — automatically.
@@ -10,9 +10,9 @@ Your AI memory across every platform. Captures context from Claude, ChatGPT, Gem
 Productivity
 
 ## Long Description
-MemoryMesh gives you persistent memory across every AI — automatically.
+MindRelay gives you persistent memory across every AI — automatically.
 
-Every time you finish a conversation on Claude, ChatGPT, Gemini, or Grok, MemoryMesh quietly saves it. The next time you open a new chat — on any AI — the relevant context from your history is injected automatically. The model already knows where you left off.
+Every time you finish a conversation on Claude, ChatGPT, Gemini, or Grok, MindRelay quietly saves it. The next time you open a new chat — on any AI — the relevant context from your history is injected automatically. The model already knows where you left off.
 
 No copy-pasting. No re-explaining. No setup.
 
@@ -21,7 +21,7 @@ No copy-pasting. No re-explaining. No setup.
 **HOW IT WORKS**
 
 ① Have a conversation on any supported AI
-② MemoryMesh saves it silently in the background
+② MindRelay saves it silently in the background
 ③ Open any new chat — your context follows you
 
 Smart retrieval matches your new question against your saved history and injects the most relevant conversations. You pick up exactly where you left off.
@@ -49,7 +49,7 @@ Smart retrieval matches your new question against your saved history and injects
 ---
 
 **PRIVACY FIRST**
-Everything stays on your device. MemoryMesh uses IndexedDB — local browser storage — to hold your transcripts. No account required. No server. No cloud. Your conversations are yours.
+Everything stays on your device. MindRelay uses IndexedDB — local browser storage — to hold your transcripts. No account required. No server. No cloud. Your conversations are yours.
 
 ---
 

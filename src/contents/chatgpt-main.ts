@@ -17,32 +17,32 @@ let pendingContext: string | null = null // manual inject from library — takes
 let contextInjected = false
 let trustedNonce: string | null = null
 
-window.addEventListener("memorymesh:memory-loaded", (e: Event) => {
+window.addEventListener("mindrelay:memory-loaded", (e: Event) => {
   const detail = (e as CustomEvent<string>).detail
   try {
     const parsed = JSON.parse(detail) as { nonce: string; data: Transcript[] }
     if (!parsed.nonce || !Array.isArray(parsed.data)) return
     if (!trustedNonce) trustedNonce = parsed.nonce
-    else if (parsed.nonce !== trustedNonce) { warn("[MemoryMesh] memory-loaded nonce mismatch — ignored"); return }
+    else if (parsed.nonce !== trustedNonce) { warn("[MindRelay] memory-loaded nonce mismatch — ignored"); return }
     allTranscripts = parsed.data
     contextInjected = false
-    log("[MemoryMesh] loaded", allTranscripts.length, "transcripts for smart retrieval")
+    log("[MindRelay] loaded", allTranscripts.length, "transcripts for smart retrieval")
   } catch (err) {
-    warn("[MemoryMesh] failed to parse memory-loaded event:", err)
+    warn("[MindRelay] failed to parse memory-loaded event:", err)
   }
 })
 
-window.addEventListener("memorymesh:context", (e: Event) => {
+window.addEventListener("mindrelay:context", (e: Event) => {
   const detail = (e as CustomEvent<string>).detail
   try {
     const parsed = JSON.parse(detail) as { nonce: string; context: string }
     if (!parsed.nonce || !parsed.context) return
-    if (!trustedNonce || parsed.nonce !== trustedNonce) { warn("[MemoryMesh] context nonce mismatch — ignored"); return }
+    if (!trustedNonce || parsed.nonce !== trustedNonce) { warn("[MindRelay] context nonce mismatch — ignored"); return }
     pendingContext = parsed.context
     contextInjected = false
-    log("[MemoryMesh] manual context ready for injection into ChatGPT")
+    log("[MindRelay] manual context ready for injection into ChatGPT")
   } catch {
-    warn("[MemoryMesh] failed to parse context event")
+    warn("[MindRelay] failed to parse context event")
   }
 })
 
@@ -87,14 +87,14 @@ window.fetch = async function (
         if (pendingContext) {
           // Manual library inject takes priority
           context = pendingContext
-          log("[MemoryMesh] using manual inject context")
+          log("[MindRelay] using manual inject context")
         } else if (allTranscripts.length > 0) {
           // Smart retrieval: rank transcripts against this message
           const userQuery = firstMsg.content.parts[0]
           const ranked = rankTranscripts(userQuery, allTranscripts, 3)
           if (ranked.length > 0) {
             context = buildCombinedContext(ranked)
-            log("[MemoryMesh] smart retrieval matched", ranked.length, "transcripts")
+            log("[MindRelay] smart retrieval matched", ranked.length, "transcripts")
           }
         }
 
@@ -102,15 +102,15 @@ window.fetch = async function (
           firstMsg.content.parts[0] = `${context}\n\n---\n\n${firstMsg.content.parts[0]}`
           contextInjected = true
           init = { ...init, body: JSON.stringify(body) }
-          log("[MemoryMesh] context injected into ChatGPT request")
+          log("[MindRelay] context injected into ChatGPT request")
         }
       }
     } catch (e) {
-      warn("[MemoryMesh] fetch intercept error:", e)
+      warn("[MindRelay] fetch intercept error:", e)
     }
   }
 
   return originalFetch(input, init)
 }
 
-log("[MemoryMesh] ChatGPT fetch interceptor active (main world)")
+log("[MindRelay] ChatGPT fetch interceptor active (main world)")

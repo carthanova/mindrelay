@@ -22,32 +22,32 @@ let pendingContext: string | null = null
 let contextInjected = false
 let trustedNonce: string | null = null
 
-window.addEventListener("memorymesh:memory-loaded", (e: Event) => {
+window.addEventListener("mindrelay:memory-loaded", (e: Event) => {
   const detail = (e as CustomEvent<string>).detail
   try {
     const parsed = JSON.parse(detail) as { nonce: string; data: Transcript[] }
     if (!parsed.nonce || !Array.isArray(parsed.data)) return
     if (!trustedNonce) trustedNonce = parsed.nonce
-    else if (parsed.nonce !== trustedNonce) { warn("[MemoryMesh] Gemini: nonce mismatch — ignored"); return }
+    else if (parsed.nonce !== trustedNonce) { warn("[MindRelay] Gemini: nonce mismatch — ignored"); return }
     allTranscripts = parsed.data
     contextInjected = false
-    log("[MemoryMesh] Gemini: loaded", allTranscripts.length, "transcripts")
+    log("[MindRelay] Gemini: loaded", allTranscripts.length, "transcripts")
   } catch (err) {
-    warn("[MemoryMesh] Gemini: failed to parse memory-loaded event:", err)
+    warn("[MindRelay] Gemini: failed to parse memory-loaded event:", err)
   }
 })
 
-window.addEventListener("memorymesh:context", (e: Event) => {
+window.addEventListener("mindrelay:context", (e: Event) => {
   const detail = (e as CustomEvent<string>).detail
   try {
     const parsed = JSON.parse(detail) as { nonce: string; context: string }
     if (!parsed.nonce || !parsed.context) return
-    if (!trustedNonce || parsed.nonce !== trustedNonce) { warn("[MemoryMesh] Gemini: context nonce mismatch — ignored"); return }
+    if (!trustedNonce || parsed.nonce !== trustedNonce) { warn("[MindRelay] Gemini: context nonce mismatch — ignored"); return }
     pendingContext = parsed.context
     contextInjected = false
-    log("[MemoryMesh] Gemini: manual context ready")
+    log("[MindRelay] Gemini: manual context ready")
   } catch {
-    warn("[MemoryMesh] Gemini: failed to parse context event")
+    warn("[MindRelay] Gemini: failed to parse context event")
   }
 })
 
@@ -59,7 +59,7 @@ history.pushState = function (...args: Parameters<typeof history.pushState>) {
     contextInjected = false
     // Keep allTranscripts — avoids race where user sends before async reload completes
     // Notify isolated world immediately — URL polling can miss this fast transition
-    window.dispatchEvent(new CustomEvent("memorymesh:gemini-new-chat"))
+    window.dispatchEvent(new CustomEvent("mindrelay:gemini-new-chat"))
   }
 }
 
@@ -105,7 +105,7 @@ window.fetch = async function (
           const ranked = rankTranscripts(userQuery, allTranscripts, 3)
           if (ranked.length > 0) {
             context = buildCombinedContext(ranked)
-            log("[MemoryMesh] Gemini: smart retrieval matched", ranked.length, "transcripts")
+            log("[MindRelay] Gemini: smart retrieval matched", ranked.length, "transcripts")
           }
         }
       }
@@ -123,20 +123,20 @@ window.fetch = async function (
             (outer as unknown[])[1] = JSON.stringify(inner)
             contextInjected = true
             init = { ...init, body: JSON.stringify(outer) }
-            log("[MemoryMesh] Gemini: context injected into request")
+            log("[MindRelay] Gemini: context injected into request")
           } else {
-            warn("[MemoryMesh] Gemini: unexpected body structure, skipping injection")
+            warn("[MindRelay] Gemini: unexpected body structure, skipping injection")
           }
         } catch (err) {
-          warn("[MemoryMesh] Gemini: injection failed:", err)
+          warn("[MindRelay] Gemini: injection failed:", err)
         }
       }
     } catch (e) {
-      warn("[MemoryMesh] Gemini fetch intercept error:", e)
+      warn("[MindRelay] Gemini fetch intercept error:", e)
     }
   }
 
   return originalFetch(input, init)
 }
 
-log("[MemoryMesh] Gemini fetch interceptor active (main world)")
+log("[MindRelay] Gemini fetch interceptor active (main world)")

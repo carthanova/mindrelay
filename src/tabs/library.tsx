@@ -153,7 +153,7 @@ export default function LibraryPage() {
       return
     }
     try {
-      await chrome.tabs.sendMessage(aiTab.id, { type: "memorymesh:inject", context })
+      await chrome.tabs.sendMessage(aiTab.id, { type: "mindrelay:inject", context })
       await chrome.tabs.update(aiTab.id, { active: true })
       const name = aiTab.url?.includes("claude.ai")
         ? "Claude"
@@ -194,7 +194,7 @@ export default function LibraryPage() {
     const url = URL.createObjectURL(blob)
     const a = document.createElement("a")
     a.href = url
-    a.download = `memorymesh-backup-${new Date().toISOString().split("T")[0]}.json`
+    a.download = `mindrelay-backup-${new Date().toISOString().split("T")[0]}.json`
     a.click()
     URL.revokeObjectURL(url)
   }

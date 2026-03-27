@@ -35,7 +35,7 @@ function findTurns(): { el: Element; role: "user" | "assistant" }[] {
   // P2 — fallback: query role elements directly (turn wrapper may have changed)
   const p2 = Array.from(document.querySelectorAll("[data-message-author-role]"))
   if (p2.length > 0) {
-    warn("[MemoryMesh] ChatGPT selector: using fallback P2")
+    warn("[MindRelay] ChatGPT selector: using fallback P2")
     return p2.flatMap((el) => {
       const role = el.getAttribute("data-message-author-role") as "user" | "assistant" | null
       return role === "user" || role === "assistant" ? [{ el, role }] : []
@@ -46,7 +46,7 @@ function findTurns(): { el: Element; role: "user" | "assistant" }[] {
   const userEls = Array.from(document.querySelectorAll('[data-testid*="user-message"], [data-testid*="human-message"]'))
   const aiEls = Array.from(document.querySelectorAll('[data-testid*="assistant-message"], [data-testid*="bot-message"]'))
   if (userEls.length > 0 || aiEls.length > 0) {
-    warn("[MemoryMesh] ChatGPT selector: using fallback P3")
+    warn("[MindRelay] ChatGPT selector: using fallback P3")
     const result: { el: Element; role: "user" | "assistant" }[] = [
       ...userEls.map((el) => ({ el, role: "user" as const })),
       ...aiEls.map((el) => ({ el, role: "assistant" as const }))
@@ -108,7 +108,7 @@ async function loadMemoryForNewChat(): Promise<void> {
   const others = all.filter((t) => t.source !== "chatgpt")
   if (others.length === 0) return
 
-  window.dispatchEvent(new CustomEvent("memorymesh:memory-loaded", {
+  window.dispatchEvent(new CustomEvent("mindrelay:memory-loaded", {
     detail: JSON.stringify({ nonce: MM_NONCE, data: others })
   }))
 }
@@ -152,10 +152,10 @@ if (location.pathname === "/" || location.pathname === "") {
 // Inject from popup — user clicked Inject on a specific memory
 chrome.runtime.onMessage.addListener((msg, sender) => {
   if (sender.id !== chrome.runtime.id) return
-  if (msg.type === "memorymesh:inject" && typeof msg.context === "string" && msg.context.length <= 100_000) {
-    window.dispatchEvent(new CustomEvent("memorymesh:context", { detail: JSON.stringify({ nonce: MM_NONCE, context: msg.context }) }))
-    log("[MemoryMesh] injected from popup")
+  if (msg.type === "mindrelay:inject" && typeof msg.context === "string" && msg.context.length <= 100_000) {
+    window.dispatchEvent(new CustomEvent("mindrelay:context", { detail: JSON.stringify({ nonce: MM_NONCE, context: msg.context }) }))
+    log("[MindRelay] injected from popup")
   }
 })
 
-log("[MemoryMesh] ChatGPT script loaded:", window.location.href)
+log("[MindRelay] ChatGPT script loaded:", window.location.href)

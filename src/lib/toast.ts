@@ -10,10 +10,10 @@ const TOAST_STYLES = `
 `
 
 export function showSaveToast(): void {
-  document.getElementById("memorymesh-toast")?.remove()
+  document.getElementById("mindrelay-toast")?.remove()
 
   const toast = document.createElement("div")
-  toast.id = "memorymesh-toast"
+  toast.id = "mindrelay-toast"
   toast.style.cssText = `
     position: fixed;
     bottom: 20px;

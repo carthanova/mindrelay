@@ -22,11 +22,11 @@ function findUserEls(): Element[] {
 
   // P2 — fallback: any element whose testid contains "human" or "user-turn"
   const p2 = Array.from(document.querySelectorAll('[data-testid*="human-turn"], [data-testid*="user-turn"]'))
-  if (p2.length > 0) { warn("[MemoryMesh] Claude user selector: using fallback P2"); return p2 }
+  if (p2.length > 0) { warn("[MindRelay] Claude user selector: using fallback P2"); return p2 }
 
   // P3 — last resort: elements with an explicit user role attribute
   const p3 = Array.from(document.querySelectorAll('[data-message-author-role="human"], [data-message-author-role="user"]'))
-  if (p3.length > 0) { warn("[MemoryMesh] Claude user selector: using fallback P3"); return p3 }
+  if (p3.length > 0) { warn("[MindRelay] Claude user selector: using fallback P3"); return p3 }
 
   return []
 }
@@ -45,11 +45,11 @@ function findAiEls(): Element[] {
   // P2 — fallback: .group elements that directly follow a user message (no retry dependency)
   const p2 = Array.from(document.querySelectorAll(".group"))
     .filter((el) => !el.querySelector('[data-testid="user-message"]') && el.textContent!.trim().length > 10)
-  if (p2.length > 0) { warn("[MemoryMesh] Claude AI selector: using fallback P2"); return p2 }
+  if (p2.length > 0) { warn("[MindRelay] Claude AI selector: using fallback P2"); return p2 }
 
   // P3 — last resort: any element whose testid suggests an assistant response
   const p3 = Array.from(document.querySelectorAll('[data-testid*="assistant"], [data-testid*="response-"]'))
-  if (p3.length > 0) { warn("[MemoryMesh] Claude AI selector: using fallback P3"); return p3 }
+  if (p3.length > 0) { warn("[MindRelay] Claude AI selector: using fallback P3"); return p3 }
 
   return []
 }
@@ -61,7 +61,7 @@ function extractMessages(): Message[] {
   const aiEls = findAiEls()
 
   if (userEls.length === 0 && aiEls.length === 0) {
-    log("[MemoryMesh] no user or AI elements found")
+    log("[MindRelay] no user or AI elements found")
     return []
   }
 
@@ -109,7 +109,7 @@ function extractMessages(): Message[] {
     }
   }
 
-  log("[MemoryMesh] extracted messages:", messages.length)
+  log("[MindRelay] extracted messages:", messages.length)
   return messages
 }
 
@@ -130,7 +130,7 @@ async function captureAndSave(): Promise<void> {
 
   // Strip injected MemoryMesh context from the first user message so we
   // never save the context header as if it were real conversation content.
-  if (messages[0]?.role === "user" && messages[0].content.startsWith("[MemoryMesh")) {
+  if (messages[0]?.role === "user" && messages[0].content.startsWith("[MindRelay")) {
     const separatorIndex = messages[0].content.indexOf("---\n\n")
     if (separatorIndex !== -1) {
       const cleaned = messages[0].content.slice(separatorIndex + 5).trim()
@@ -160,7 +160,7 @@ async function captureAndSave(): Promise<void> {
   })
 
   showSaveToast()
-  log("[MemoryMesh] saved:", title)
+  log("[MindRelay] saved:", title)
 }
 
 // ─── Load memory for new chat (smart auto-retrieval only) ─────────────────
@@ -170,7 +170,7 @@ async function loadMemoryForNewChat(): Promise<void> {
   const others = all.filter((t) => t.source !== "claude")
   if (others.length === 0) return
 
-  window.dispatchEvent(new CustomEvent("memorymesh:memory-loaded", {
+  window.dispatchEvent(new CustomEvent("mindrelay:memory-loaded", {
     detail: JSON.stringify({ nonce: MM_NONCE, data: others })
   }))
 }
@@ -213,10 +213,10 @@ setTimeout(captureAndSave, 5_000)
 // Inject from popup — user clicked Inject on a specific memory
 chrome.runtime.onMessage.addListener((msg, sender) => {
   if (sender.id !== chrome.runtime.id) return
-  if (msg.type === "memorymesh:inject" && typeof msg.context === "string" && msg.context.length <= 100_000) {
-    window.dispatchEvent(new CustomEvent("memorymesh:context", { detail: JSON.stringify({ nonce: MM_NONCE, context: msg.context }) }))
-    log("[MemoryMesh] injected from popup")
+  if (msg.type === "mindrelay:inject" && typeof msg.context === "string" && msg.context.length <= 100_000) {
+    window.dispatchEvent(new CustomEvent("mindrelay:context", { detail: JSON.stringify({ nonce: MM_NONCE, context: msg.context }) }))
+    log("[MindRelay] injected from popup")
   }
 })
 
-log("[MemoryMesh] Claude script loaded:", window.location.href)
+log("[MindRelay] Claude script loaded:", window.location.href)
