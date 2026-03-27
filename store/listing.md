@@ -44,7 +44,7 @@ Smart retrieval matches your new question against your saved history and injects
 • Memory browser — search, filter by source, preview conversations
 • Import / Export — bring in existing notes as memory (.json or .md)
 • 100% local — your conversations never leave your device
-• Stores up to 200 conversations (oldest auto-removed when limit is reached)
+• Free tier stores up to 50 conversations (upgrade for more)
 
 ---
 

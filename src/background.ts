@@ -2,7 +2,9 @@ import { dbClear, dbDelete, dbDeleteBySource, dbEvictOldest, dbFindByUrl, dbGetA
 import { log } from "./lib/log"
 import type { Transcript } from "./lib/storage"
 
-const MAX_TRANSCRIPTS = 200
+// Free tier cap. Pro tier (200) and Unlimited tier to be enforced once
+// monetization is implemented.
+const MAX_TRANSCRIPTS = 50
 
 // ─── Extension badge ──────────────────────────────────────────────────────────
 
