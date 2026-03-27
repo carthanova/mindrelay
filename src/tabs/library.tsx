@@ -1,4 +1,5 @@
 import "./library.css"
+import icon from "url:../../assets/icon.png"
 import { useEffect, useMemo, useState } from "react"
 import {
   buildContextSummary,
@@ -295,10 +296,7 @@ export default function LibraryPage() {
         flexShrink: 0
       }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8, marginRight: 4 }}>
-          <svg width="20" height="20" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <path d="M9 0.5L17.5 9L9 17.5L0.5 9Z" fill="url(#mr_lib)"/>
-            <defs><linearGradient id="mr_lib" x1="0.5" y1="0.5" x2="17.5" y2="17.5" gradientUnits="userSpaceOnUse"><stop stopColor="#9d8ff5"/><stop offset="1" stopColor="#4285f4"/></linearGradient></defs>
-          </svg>
+          <img src={icon} width={20} height={20} style={{ borderRadius: 4 }} />
           <span style={{ fontWeight: 700, fontSize: 16, color: "#fff", letterSpacing: "-0.01em" }}>
             MindRelay
           </span>
@@ -526,10 +524,7 @@ export default function LibraryPage() {
           {!selected ? (
             <div style={{ textAlign: "center", marginTop: 110 }}>
               <div style={{ marginBottom: 16, opacity: 0.15 }}>
-                <svg width="48" height="48" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg">
-                  <path d="M9 0.5L17.5 9L9 17.5L0.5 9Z" fill="url(#mr_detail)"/>
-                  <defs><linearGradient id="mr_detail" x1="0.5" y1="0.5" x2="17.5" y2="17.5" gradientUnits="userSpaceOnUse"><stop stopColor="#9d8ff5"/><stop offset="1" stopColor="#4285f4"/></linearGradient></defs>
-                </svg>
+                <img src={icon} width={48} height={48} style={{ borderRadius: 10 }} />
               </div>
               <div style={{ fontSize: 14, color: "#333" }}>Select a memory to view it</div>
               <div style={{ fontSize: 12, color: "#252535", marginTop: 6 }}>

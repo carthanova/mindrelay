@@ -1,4 +1,5 @@
 import "./popup.css"
+import icon from "url:../assets/icon.png"
 import { useEffect, useRef, useState } from "react"
 import {
   clearAllTranscripts,
@@ -206,10 +207,7 @@ export default function IndexPopup() {
       <div style={{ padding: "12px 16px 10px", borderBottom: "1px solid #1e1e2e" }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
-            <svg width="18" height="18" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg">
-              <path d="M9 0.5L17.5 9L9 17.5L0.5 9Z" fill="url(#mr_hdr)"/>
-              <defs><linearGradient id="mr_hdr" x1="0.5" y1="0.5" x2="17.5" y2="17.5" gradientUnits="userSpaceOnUse"><stop stopColor="#9d8ff5"/><stop offset="1" stopColor="#4285f4"/></linearGradient></defs>
-            </svg>
+            <img src={icon} width={18} height={18} style={{ borderRadius: 4 }} />
             <span style={{ fontWeight: 700, fontSize: 14, color: "#fff", letterSpacing: "-0.01em" }}>MindRelay</span>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
@@ -308,10 +306,7 @@ export default function IndexPopup() {
         {!loading && transcripts.length === 0 && (
           <div style={{ padding: "28px 20px 24px", textAlign: "center" }}>
             <div style={{ marginBottom: 12 }}>
-              <svg width="48" height="48" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg">
-                <path d="M9 0.5L17.5 9L9 17.5L0.5 9Z" fill="url(#mr_empty)"/>
-                <defs><linearGradient id="mr_empty" x1="0.5" y1="0.5" x2="17.5" y2="17.5" gradientUnits="userSpaceOnUse"><stop stopColor="#9d8ff5"/><stop offset="1" stopColor="#4285f4"/></linearGradient></defs>
-              </svg>
+              <img src={icon} width={48} height={48} style={{ borderRadius: 10 }} />
             </div>
             <div style={{ fontSize: 15, fontWeight: 700, color: "#e0e0f0", marginBottom: 4, letterSpacing: "-0.01em" }}>
               Your AI memory,
