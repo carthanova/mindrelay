@@ -1,4 +1,4 @@
-# 🧠 MindRelay
+# MindRelay
 
 **Your AI memory across every platform.**
 
