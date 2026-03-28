@@ -254,6 +254,7 @@ export default function IndexPopup() {
             {["all", ...presentSources].map((src) => {
               const active = sourceFilter === src
               const color = src === "all" ? "#888" : (SOURCE_COLORS[src] ?? "#888")
+              const isGrokSrc = src === "grok"
               const count = src === "all"
                 ? transcripts.length
                 : transcripts.filter((t) => t.source === src).length
@@ -263,9 +264,9 @@ export default function IndexPopup() {
                   onClick={() => setSourceFilter(src)}
                   style={{
                     flexShrink: 0,
-                    background: active ? `${color}1a` : "transparent",
-                    border: `1px solid ${active ? color + "44" : "#252535"}`,
-                    color: active ? (src === "all" ? "#bbb" : color) : "#555",
+                    background: active ? (isGrokSrc ? "#000000" : `${color}1a`) : "transparent",
+                    border: `1px solid ${active ? (isGrokSrc ? "#444" : color + "44") : "#252535"}`,
+                    color: active ? (src === "all" ? "#bbb" : isGrokSrc ? "#ffffff" : color) : "#555",
                     borderRadius: 20,
                     padding: "3px 9px",
                     fontSize: 11,
@@ -549,9 +550,9 @@ export default function IndexPopup() {
                   key={src}
                   onClick={() => handleClearSource(src as Transcript["source"])}
                   style={{
-                    background: `${SOURCE_COLORS[src] ?? "#888"}12`,
-                    border: `1px solid ${SOURCE_COLORS[src] ?? "#888"}33`,
-                    color: SOURCE_COLORS[src] ?? "#888",
+                    background: src === "grok" ? "#000000" : `${SOURCE_COLORS[src] ?? "#888"}12`,
+                    border: `1px solid ${src === "grok" ? "#444" : (SOURCE_COLORS[src] ?? "#888") + "33"}`,
+                    color: src === "grok" ? "#ffffff" : SOURCE_COLORS[src] ?? "#888",
                     borderRadius: 6,
                     padding: "4px 10px",
                     fontSize: 11,

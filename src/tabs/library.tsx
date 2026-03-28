@@ -354,6 +354,7 @@ export default function LibraryPage() {
           {["all", ...presentSources].map((src) => {
             const active = sourceFilter === src
             const color = src === "all" ? "#888" : (SOURCE_COLORS[src] ?? "#888")
+            const isGrokSrc = src === "grok"
             const count = src === "all"
               ? transcripts.length
               : transcripts.filter((t) => t.source === src).length
@@ -362,9 +363,9 @@ export default function LibraryPage() {
                 key={src}
                 onClick={() => setSourceFilter(src)}
                 style={{
-                  background: active ? `${color}1a` : "transparent",
-                  border: `1px solid ${active ? color + "44" : "#252535"}`,
-                  color: active ? (src === "all" ? "#bbb" : color) : "#444",
+                  background: active ? (isGrokSrc ? "#000000" : `${color}1a`) : "transparent",
+                  border: `1px solid ${active ? (isGrokSrc ? "#444" : color + "44") : "#252535"}`,
+                  color: active ? (src === "all" ? "#bbb" : isGrokSrc ? "#ffffff" : color) : "#444",
                   borderRadius: 20,
                   padding: "4px 12px",
                   fontSize: 12,
@@ -580,7 +581,7 @@ export default function LibraryPage() {
                             href={selected.url}
                             target="_blank"
                             rel="noreferrer"
-                            style={{ color: SOURCE_COLORS[selected.source] ?? "#888", textDecoration: "none" }}
+                            style={{ color: selected.source === "grok" ? "#aaa" : (SOURCE_COLORS[selected.source] ?? "#888"), textDecoration: "none" }}
                           >
                             Open original →
                           </a>
@@ -595,9 +596,9 @@ export default function LibraryPage() {
                       <button
                         onClick={(e) => { e.stopPropagation(); setShowInjectMenu((v) => !v) }}
                         style={{
-                          background: `${SOURCE_COLORS[selected.source] ?? "#888"}1a`,
-                          border: `1px solid ${SOURCE_COLORS[selected.source] ?? "#888"}44`,
-                          color: SOURCE_COLORS[selected.source] ?? "#888",
+                          background: selected.source === "grok" ? "#000000" : `${SOURCE_COLORS[selected.source] ?? "#888"}1a`,
+                          border: `1px solid ${selected.source === "grok" ? "#444" : (SOURCE_COLORS[selected.source] ?? "#888") + "44"}`,
+                          color: selected.source === "grok" ? "#ffffff" : SOURCE_COLORS[selected.source] ?? "#888",
                           borderRadius: 7,
                           padding: "7px 16px",
                           fontSize: 13,
