@@ -22,11 +22,17 @@ let saveTimer: ReturnType<typeof setTimeout> | null = null
 let inputSelectors: string[] = []
 let submitSelectors: string[] = []
 
-/** Strip query params and fragments so the URL is stable across Grok response cycles. */
+/** Strip query params and fragments for a clean URL. */
 function getConversationUrl(): string {
   const { origin, pathname } = new URL(window.location.href)
   return origin + pathname
 }
+
+// Grok often redirects from /chat → /c/<id> after the first message is sent,
+// changing the path mid-conversation. We lock onto the URL at the start of each
+// session and only update it when we detect a genuinely empty new conversation.
+// This ensures all saves for one conversation land under the same DB entry.
+let sessionUrl = getConversationUrl()
 
 // ─── Capture ──────────────────────────────────────────────────────────────────
 
@@ -97,7 +103,7 @@ async function captureAndSave(): Promise<void> {
     const timestamp = Date.now()
     const markdown = buildMarkdown("Grok", title, messages, timestamp)
 
-    await saveTranscript({ source: "grok", title, messages, markdown, timestamp, url: getConversationUrl() })
+    await saveTranscript({ source: "grok", title, messages, markdown, timestamp, url: sessionUrl })
     showSaveToast()
     log("[MindRelay] Grok saved:", title)
   } catch (err) {
@@ -157,9 +163,17 @@ setInterval(() => {
   const current = getConversationUrl()
   if (current === lastUrl) return
   lastUrl = current
-  lastSavedHash = ""
-  injectedIds = new Set()
-  refreshTranscripts()
+
+  // Only treat as a new conversation when the DOM is empty.
+  // If messages are present, Grok just assigned a conversation ID to the same
+  // session (/chat → /c/<id>) — keep sessionUrl so saves stay under one DB entry.
+  const hasMessages = extractMessages().length > 0
+  if (!hasMessages) {
+    sessionUrl = current
+    lastSavedHash = ""
+    injectedIds = new Set()
+    refreshTranscripts()
+  }
 }, 300)
 
 // ─── Popup inject ─────────────────────────────────────────────────────────────
