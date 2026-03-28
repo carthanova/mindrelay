@@ -593,7 +593,7 @@ export default function LibraryPage() {
                     {/* Inject dropdown */}
                     <div style={{ position: "relative" }}>
                       <button
-                        onClick={() => setShowInjectMenu((v) => !v)}
+                        onClick={(e) => { e.stopPropagation(); setShowInjectMenu((v) => !v) }}
                         style={{
                           background: `${SOURCE_COLORS[selected.source] ?? "#888"}1a`,
                           border: `1px solid ${SOURCE_COLORS[selected.source] ?? "#888"}44`,
