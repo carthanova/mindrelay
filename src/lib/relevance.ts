@@ -25,7 +25,9 @@ const STOP_WORDS = new Set([
   "this","that","these","those",
   // other noise
   "all","any","few","really","actually","basically","literally","probably",
-  "might","maybe","perhaps","however","though","although","because","since"
+  "might","maybe","perhaps","however","though","although","because","since",
+  // semantically ambiguous — mean different things in tech vs personal contexts
+  "live","life","world","people","place","time","work","thing","things","way"
 ])
 
 // Short words that are meaningful in tech/AI contexts — never filtered
@@ -59,7 +61,7 @@ function termFrequency(tokens: string[]): Map<string, number> {
 const TITLE_WEIGHT = 5      // title match — strongest topic signal
 const FIRST_MSG_WEIGHT = 3  // first user message — sets the topic
 const BODY_FREQ_CAP = 4     // max freq contribution per term in body text
-const MIN_SCORE = 1         // below this = not relevant, don't inject
+const MIN_SCORE = 2         // below this = not relevant, don't inject
 const SCORE_GAP_RATIO = 0.5 // secondary results must score ≥ 50% of top score
                              // prevents loosely-related transcripts from riding
                              // along when only one is clearly the best match
@@ -137,9 +139,7 @@ export function rankTranscripts(
 export function buildCombinedContext(transcripts: Transcript[]): string {
   if (transcripts.length === 0) return ""
 
-  const date = new Date().toLocaleString()
-
-  const sections = transcripts.map((t, i) => {
+  const sections = transcripts.map((t) => {
     const tDate = new Date(t.timestamp).toLocaleDateString()
     const lines = t.messages.slice(0, 14).map((m) => {
       const label = m.role === "user" ? "User" : "Assistant"
@@ -147,18 +147,8 @@ export function buildCombinedContext(transcripts: Transcript[]): string {
       const text = m.content.trim()
       return `${label}: ${text.length > limit ? text.slice(0, limit) + "..." : text}`
     })
-    return [
-      `--- Memory ${i + 1}: "${t.title}" (${t.source}, ${tDate}) ---`,
-      ...lines
-    ].join("\n\n")
+    return [`[MindRelay: "${t.title}" — ${t.source}, ${tDate}]`, ...lines].join("\n")
   })
 
-  return [
-    `[MindRelay — retrieved memory | ${date}]`,
-    `The following context was retrieved from your conversation history based on relevance to this topic. Use it immediately — do not ask the user to re-explain. Pick up naturally from where they left off.`,
-    "",
-    sections.join("\n\n"),
-    "",
-    `[End of retrieved memory.]`
-  ].join("\n\n")
+  return [...sections, "[End of retrieved memory.]"].join("\n\n")
 }
