@@ -608,7 +608,7 @@ export default function LibraryPage() {
                           gap: 6
                         }}
                       >
-                        Inject into AI
+                        Inject into Model
                         <span style={{ fontSize: 10, opacity: 0.7 }}>▾</span>
                       </button>
                       {showInjectMenu && (
