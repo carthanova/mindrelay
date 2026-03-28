@@ -137,6 +137,7 @@ export default function LibraryPage() {
     return () => document.removeEventListener("click", close)
   }, [showClearMenu])
 
+
   const storageInfo = useMemo(() => {
     if (transcripts.length === 0) return "0 KB"
     const bytes = new TextEncoder().encode(JSON.stringify(transcripts)).length
@@ -234,35 +235,52 @@ export default function LibraryPage() {
   }
 
   async function processFiles(files: File[]) {
-    try {
-      const incoming: Transcript[] = []
-      for (const file of files) {
+    if (files.length === 0) return
+    const incoming: Transcript[] = []
+
+    for (const file of files) {
+      try {
         const text = await file.text()
         if (file.name.endsWith(".json")) {
-          const data = JSON.parse(text)
-          if (!Array.isArray(data)) throw new Error("Invalid JSON")
-          const valid = (data as unknown[]).filter(validateTranscript)
-          if (valid.length === 0 && data.length > 0) throw new Error("No valid transcripts found")
-          incoming.push(...valid)
-        } else if (file.name.endsWith(".md")) {
+          try {
+            const data = JSON.parse(text)
+            if (Array.isArray(data)) {
+              incoming.push(...(data as unknown[]).filter(validateTranscript) as Transcript[])
+            } else if (validateTranscript(data)) {
+              incoming.push(data as Transcript)
+            } else {
+              incoming.push(mdToTranscript(file.name, text))
+            }
+          } catch {
+            incoming.push(mdToTranscript(file.name, text))
+          }
+        } else {
           incoming.push(mdToTranscript(file.name, text))
         }
+      } catch {
+        // skip unreadable files
       }
+    }
+
+    if (incoming.length === 0) {
+      showStatus("No readable files found")
+      return
+    }
+
+    try {
       const count = await importTranscripts(incoming)
       const updated = await getAllTranscripts()
       setTranscripts(updated)
       showStatus(`Imported ${count} new ${count === 1 ? "memory" : "memories"}`)
     } catch {
-      showStatus("Import failed — check file format")
+      showStatus("Storage error — try reloading")
     }
   }
 
   function handleDrop(e: React.DragEvent) {
     e.preventDefault()
     setIsDragOver(false)
-    const files = Array.from(e.dataTransfer.files).filter(
-      (f) => f.name.endsWith(".json") || f.name.endsWith(".md")
-    )
+    const files = Array.from(e.dataTransfer.files)
     if (files.length > 0) processFiles(files)
   }
 
@@ -405,6 +423,34 @@ export default function LibraryPage() {
               {injectStatus}
             </span>
           )}
+          <label
+            style={{
+              background: "rgba(124,106,247,0.1)",
+              border: "1px solid rgba(124,106,247,0.25)",
+              color: "#7c6af7",
+              borderRadius: 7,
+              padding: "6px 14px",
+              fontSize: 12,
+              cursor: "pointer",
+              display: "inline-block",
+              position: "relative",
+              overflow: "hidden"
+            }}
+          >
+            Import
+            <input
+              type="file"
+              multiple
+              // @ts-ignore
+              webkitdirectory=""
+              style={{ position: "absolute", inset: 0, opacity: 0, cursor: "pointer", fontSize: 0 }}
+              onChange={(e) => {
+                const files = Array.from(e.target.files ?? []).filter(f => !f.name.startsWith("."))
+                if (files.length > 0) processFiles(files)
+                e.target.value = ""
+              }}
+            />
+          </label>
           <button
             onClick={handleExport}
             style={{

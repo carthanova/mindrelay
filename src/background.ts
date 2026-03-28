@@ -77,6 +77,58 @@ async function runDbRenameMigration(): Promise<void> {
 
 runDbRenameMigration().catch(console.error)
 
+// ─── Auto-backup ─────────────────────────────────────────────────────────────
+
+const BACKUP_ALARM = "mindrelay-auto-backup"
+const LAST_BACKUP_KEY = "mindrelay_last_backup_count"
+
+async function performAutoBackup(): Promise<void> {
+  const all = await dbGetAll()
+  if (all.length === 0) return
+
+  // Only backup if data has changed since last backup
+  const stored = await chrome.storage.local.get(LAST_BACKUP_KEY)
+  if (stored[LAST_BACKUP_KEY] === all.length) return
+
+  const json = JSON.stringify(all, null, 2)
+  const date = new Date().toISOString().split("T")[0]
+  const url = `data:application/json;charset=utf-8,${encodeURIComponent(json)}`
+
+  await chrome.downloads.download({
+    url,
+    filename: `mindrelay-backup-${date}.json`,
+    saveAs: false,
+    conflictAction: "overwrite"
+  })
+
+  await chrome.storage.local.set({ [LAST_BACKUP_KEY]: all.length })
+  log("[MindRelay] auto-backup saved:", `mindrelay-backup-${date}.json`)
+}
+
+// Schedule daily backup
+chrome.alarms.get(BACKUP_ALARM, (alarm) => {
+  if (!alarm) {
+    chrome.alarms.create(BACKUP_ALARM, { periodInMinutes: 60 * 24 })
+  }
+})
+
+chrome.alarms.onAlarm.addListener((alarm) => {
+  if (alarm.name === BACKUP_ALARM) {
+    performAutoBackup().catch(console.error)
+  }
+})
+
+// Also backup whenever new data is saved (triggered after DB_PUT)
+async function maybeBackup(): Promise<void> {
+  const all = await dbGetAll()
+  const stored = await chrome.storage.local.get(LAST_BACKUP_KEY)
+  const lastCount = stored[LAST_BACKUP_KEY] ?? 0
+  // Only auto-backup when count grows by 5+ to avoid spamming Downloads
+  if (all.length >= lastCount + 5) {
+    await performAutoBackup()
+  }
+}
+
 // ─── Storage message handler ─────────────────────────────────────────────────
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
@@ -101,6 +153,7 @@ async function handleMessage(msg: {
       await dbPut(msg.data as Transcript)
       await dbEvictOldest(MAX_TRANSCRIPTS)
       updateBadge().catch(console.error)
+      maybeBackup().catch(console.error)
       return
     case "DB_DELETE":
       await dbDelete(msg.id as string)

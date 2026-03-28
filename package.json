@@ -33,7 +33,9 @@
     "permissions": [
       "tabs",
       "storage",
-      "activeTab"
+      "activeTab",
+      "downloads",
+      "alarms"
     ]
   }
 }

@@ -1,74 +1,13 @@
 import "./popup.css"
 import icon from "url:../assets/icon.png"
-import { useEffect, useRef, useState } from "react"
+import { useEffect, useState } from "react"
 import {
   clearAllTranscripts,
   clearBySource,
   deleteTranscript,
   getAllTranscripts,
-  importTranscripts,
-  type Message,
   type Transcript
 } from "./lib/storage"
-
-// ─── Markdown (.md) file parser ─────────────────────────────────────────────
-
-function parseFrontmatter(content: string): { date: string | null } {
-  const match = content.match(/^---\n([\s\S]*?)\n---\n/)
-  if (!match) return { date: null }
-  const dateMatch = match[1].match(/date:\s*(.+)/)
-  return { date: dateMatch ? dateMatch[1].trim() : null }
-}
-
-function extractH1(content: string, filename: string): string {
-  const h1 = content.match(/^#\s+(.+)$/m)
-  if (h1) return h1[1].trim()
-  return filename
-    .replace(/^conversation_/, "")
-    .replace(/_\d{4}-\d{2}-\d{2}\.md$/, "")
-    .replace(/\.md$/, "")
-    .replace(/_/g, " ")
-}
-
-function mdToTranscript(filename: string, content: string): Transcript {
-  const { date } = parseFrontmatter(content)
-  const title = extractH1(content, filename)
-  const body = content.replace(/^---\n[\s\S]*?\n---\n/, "").trim()
-  const timestamp = date ? new Date(date).getTime() : Date.now()
-  const messages: Message[] = [{ role: "assistant", content: body }]
-  return {
-    id: `obsidian_${filename.replace(/\.md$/, "")}`,
-    source: "obsidian",
-    title,
-    messages,
-    markdown: content,
-    timestamp,
-    url: filename
-  }
-}
-
-// ─── Security helpers ────────────────────────────────────────────────────────
-
-const VALID_SOURCES = new Set(["claude", "chatgpt", "gemini", "grok", "obsidian"])
-const MAX_FIELD_LEN = 100_000
-
-function validateTranscript(obj: unknown): obj is Transcript {
-  if (!obj || typeof obj !== "object") return false
-  const t = obj as Record<string, unknown>
-  return (
-    typeof t.id === "string" && t.id.length <= 200 &&
-    typeof t.source === "string" && VALID_SOURCES.has(t.source) &&
-    typeof t.title === "string" && t.title.length <= 500 &&
-    typeof t.timestamp === "number" && isFinite(t.timestamp) &&
-    Array.isArray(t.messages) && t.messages.length <= 500 &&
-    (t.messages as unknown[]).every(
-      (m) => m && typeof m === "object" &&
-        ((m as Record<string, unknown>).role === "user" || (m as Record<string, unknown>).role === "assistant") &&
-        typeof (m as Record<string, unknown>).content === "string" &&
-        ((m as Record<string, unknown>).content as string).length <= MAX_FIELD_LEN
-    )
-  )
-}
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
@@ -110,10 +49,16 @@ export default function IndexPopup() {
   const [search, setSearch] = useState("")
   const [sourceFilter, setSourceFilter] = useState<string>("all")
   const [expandedId, setExpandedId] = useState<string | null>(null)
-  const [showClearOptions, setShowClearOptions] = useState(false)
+  const [showClearMenu, setShowClearMenu] = useState(false)
   const [hoveredId, setHoveredId] = useState<string | null>(null)
   const [statusMsg, setStatusMsg] = useState<string | null>(null)
-  const fileInputRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    if (!showClearMenu) return
+    const close = () => setShowClearMenu(false)
+    document.addEventListener("click", close)
+    return () => document.removeEventListener("click", close)
+  }, [showClearMenu])
 
   useEffect(() => {
     getAllTranscripts().then((data) => {
@@ -149,7 +94,7 @@ export default function IndexPopup() {
     if (!confirm(`Clear all ${source} memory? This cannot be undone.`)) return
     await clearBySource(source)
     setTranscripts((prev) => prev.filter((t) => t.source !== source))
-    setShowClearOptions(false)
+    setShowClearMenu(false)
     if (sourceFilter === source) setSourceFilter("all")
   }
 
@@ -157,36 +102,10 @@ export default function IndexPopup() {
     if (!confirm("Clear all saved memory? This cannot be undone.")) return
     await clearAllTranscripts()
     setTranscripts([])
-    setShowClearOptions(false)
+    setShowClearMenu(false)
     setSourceFilter("all")
   }
 
-  async function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
-    const files = Array.from(e.target.files ?? [])
-    if (files.length === 0) return
-    try {
-      const incoming: Transcript[] = []
-      for (const file of files) {
-        const text = await file.text()
-        if (file.name.endsWith(".json")) {
-          const data = JSON.parse(text)
-          if (!Array.isArray(data)) throw new Error("Invalid JSON")
-          const valid = (data as unknown[]).filter(validateTranscript)
-          if (valid.length === 0 && data.length > 0) throw new Error("No valid transcripts found")
-          incoming.push(...valid)
-        } else if (file.name.endsWith(".md")) {
-          incoming.push(mdToTranscript(file.name, text))
-        }
-      }
-      const count = await importTranscripts(incoming)
-      const updated = await getAllTranscripts()
-      setTranscripts(updated)
-      showStatus(`Imported ${count} new ${count === 1 ? "memory" : "memories"}`)
-    } catch {
-      showStatus("Import failed — check file format")
-    }
-    e.target.value = ""
-  }
 
   return (
     <div style={{
@@ -209,8 +128,6 @@ export default function IndexPopup() {
           <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
             <img src={icon} width={18} height={18} style={{ borderRadius: 4 }} />
             <span style={{ fontWeight: 700, fontSize: 14, color: "#fff", letterSpacing: "-0.01em" }}>MindRelay</span>
-          </div>
-          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
             {transcripts.length > 0 && (
               <span style={{
                 fontSize: 11,
@@ -225,6 +142,78 @@ export default function IndexPopup() {
               </span>
             )}
           </div>
+          {transcripts.length > 0 && (
+            <div style={{ position: "relative" }}>
+              <button
+                onClick={(e) => { e.stopPropagation(); setShowClearMenu((v) => !v) }}
+                style={{
+                  background: "transparent",
+                  border: "1px solid rgba(204,85,85,0.2)",
+                  color: "#cc5555",
+                  borderRadius: 7,
+                  padding: "4px 10px",
+                  fontSize: 11,
+                  cursor: "pointer",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 5
+                }}
+              >
+                Clear
+                <span style={{ fontSize: 9, opacity: 0.7 }}>▾</span>
+              </button>
+              {showClearMenu && (
+                <div style={{
+                  position: "absolute",
+                  top: "calc(100% + 6px)",
+                  right: 0,
+                  background: "#161625",
+                  border: "1px solid #252535",
+                  borderRadius: 8,
+                  overflow: "hidden",
+                  zIndex: 50,
+                  minWidth: 150,
+                  boxShadow: "0 8px 24px rgba(0,0,0,0.4)"
+                }}>
+                  <button
+                    onClick={() => { setShowClearMenu(false); handleClearAll() }}
+                    style={{
+                      display: "block", width: "100%", textAlign: "left",
+                      background: "transparent", border: "none",
+                      borderBottom: "1px solid #1e1e2e",
+                      color: "#cc5555", padding: "9px 14px", fontSize: 12, cursor: "pointer"
+                    }}
+                    onMouseEnter={(e) => (e.currentTarget.style.background = "#1e1e35")}
+                    onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
+                  >
+                    Clear All
+                  </button>
+                  {presentSources.map((src) => {
+                    const isGrokSrc = src === "grok"
+                    const c = SOURCE_COLORS[src] ?? "#888"
+                    return (
+                      <button
+                        key={src}
+                        onClick={() => { setShowClearMenu(false); handleClearSource(src as Transcript["source"]) }}
+                        style={{
+                          display: "block", width: "100%", textAlign: "center",
+                          background: isGrokSrc ? "#000000" : `${c}28`,
+                          border: "none", borderBottom: "1px solid #1e1e2e",
+                          color: isGrokSrc ? "#ffffff" : c,
+                          padding: "8px 14px", fontSize: 12, cursor: "pointer",
+                          textTransform: "capitalize"
+                        }}
+                        onMouseEnter={(e) => (e.currentTarget.style.opacity = "0.8")}
+                        onMouseLeave={(e) => (e.currentTarget.style.opacity = "1")}
+                      >
+                        {src}
+                      </button>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Search */}
@@ -250,7 +239,7 @@ export default function IndexPopup() {
 
         {/* Source filter tabs */}
         {presentSources.length > 0 && (
-          <div style={{ display: "flex", gap: 5, overflowX: "auto" }}>
+          <div className="no-scrollbar" style={{ display: "flex", gap: 5, overflowX: "auto" }}>
             {["all", ...presentSources].map((src) => {
               const active = sourceFilter === src
               const color = src === "all" ? "#888" : (SOURCE_COLORS[src] ?? "#888")
@@ -294,18 +283,47 @@ export default function IndexPopup() {
         )}
 
         {!loading && transcripts.length === 0 && (
-          <div style={{ padding: "28px 20px 24px", textAlign: "center" }}>
-            <div style={{ marginBottom: 12 }}>
-              <img src={icon} width={48} height={48} style={{ borderRadius: 10 }} />
+          <div style={{ padding: "20px 16px 24px", textAlign: "center" }}>
+
+            {/* Recovery banner */}
+            <div
+              onClick={() => chrome.tabs.create({ url: chrome.runtime.getURL("tabs/library.html") })}
+              style={{
+                background: "rgba(124,106,247,0.08)",
+                border: "1px solid rgba(124,106,247,0.3)",
+                borderRadius: 10,
+                padding: "14px 16px",
+                marginBottom: 20,
+                cursor: "pointer",
+                textAlign: "left",
+                display: "flex",
+                alignItems: "center",
+                gap: 12
+              }}
+            >
+              <div style={{ fontSize: 22, flexShrink: 0 }}>💾</div>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 13, fontWeight: 600, color: "#a78bfa", marginBottom: 3 }}>
+                  Recover your memories
+                </div>
+                <div style={{ fontSize: 11, color: "#555", lineHeight: 1.5 }}>
+                  Had conversations before? Open the library to restore from backup.
+                </div>
+              </div>
+              <div style={{ fontSize: 11, color: "#7c6af7", flexShrink: 0 }}>Open →</div>
             </div>
-            <div style={{ fontSize: 15, fontWeight: 700, color: "#e0e0f0", marginBottom: 4, letterSpacing: "-0.01em" }}>
+
+            <div style={{ marginBottom: 12 }}>
+              <img src={icon} width={40} height={40} style={{ borderRadius: 10 }} />
+            </div>
+            <div style={{ fontSize: 14, fontWeight: 700, color: "#e0e0f0", marginBottom: 4, letterSpacing: "-0.01em" }}>
               Your AI memory,
             </div>
-            <div style={{ fontSize: 15, fontWeight: 700, color: "#7c6af7", marginBottom: 20, letterSpacing: "-0.01em" }}>
+            <div style={{ fontSize: 14, fontWeight: 700, color: "#7c6af7", marginBottom: 16, letterSpacing: "-0.01em" }}>
               across every platform.
             </div>
 
-            <div style={{ display: "flex", flexDirection: "column", gap: 12, textAlign: "left", marginBottom: 20 }}>
+            <div style={{ display: "flex", flexDirection: "column", gap: 10, textAlign: "left", marginBottom: 16 }}>
               {[
                 { n: "①", title: "Start a conversation", sub: "Claude · ChatGPT · Gemini · Grok" },
                 { n: "②", title: "It saves automatically", sub: "No setup. No copy-paste." },
@@ -322,7 +340,7 @@ export default function IndexPopup() {
             </div>
 
             <button
-              onClick={() => fileInputRef.current?.click()}
+              onClick={() => chrome.tabs.create({ url: chrome.runtime.getURL("tabs/library.html") })}
               style={{
                 background: "rgba(124,106,247,0.08)",
                 border: "1px solid rgba(124,106,247,0.2)",
@@ -493,116 +511,22 @@ export default function IndexPopup() {
           </div>
         )}
 
-        {!showClearOptions ? (
-          <div style={{ display: "flex", gap: 6 }}>
-            <button
-              onClick={() => chrome.tabs.create({ url: chrome.runtime.getURL("tabs/library.html") })}
-              style={{
-                flex: 1,
-                background: "rgba(255,255,255,0.03)",
-                border: "1px solid #252535",
-                color: "#777",
-                borderRadius: 7,
-                padding: "6px 12px",
-                fontSize: 12,
-                cursor: "pointer"
-              }}
-            >
-              Open library
-            </button>
-            <button
-              onClick={() => fileInputRef.current?.click()}
-              style={{
-                background: "rgba(124,106,247,0.1)",
-                border: "1px solid rgba(124,106,247,0.25)",
-                color: "#7c6af7",
-                borderRadius: 7,
-                padding: "6px 12px",
-                fontSize: 12,
-                cursor: "pointer"
-              }}
-            >
-              Import
-            </button>
-            {transcripts.length > 0 && (
-              <button
-                onClick={() => setShowClearOptions(true)}
-                style={{
-                  background: "none",
-                  border: "1px solid rgba(204,85,85,0.2)",
-                  color: "#cc5555",
-                  borderRadius: 7,
-                  padding: "6px 12px",
-                  fontSize: 12,
-                  cursor: "pointer"
-                }}
-              >
-                Clear
-              </button>
-            )}
-          </div>
-        ) : (
-          <div>
-            <div style={{ fontSize: 11, color: "#444", marginBottom: 7 }}>Clear by source:</div>
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
-              {presentSources.map((src) => (
-                <button
-                  key={src}
-                  onClick={() => handleClearSource(src as Transcript["source"])}
-                  style={{
-                    background: src === "grok" ? "#000000" : `${SOURCE_COLORS[src] ?? "#888"}12`,
-                    border: `1px solid ${src === "grok" ? "#444" : (SOURCE_COLORS[src] ?? "#888") + "33"}`,
-                    color: src === "grok" ? "#ffffff" : SOURCE_COLORS[src] ?? "#888",
-                    borderRadius: 6,
-                    padding: "4px 10px",
-                    fontSize: 11,
-                    cursor: "pointer",
-                    textTransform: "capitalize"
-                  }}
-                >
-                  {src}
-                </button>
-              ))}
-              <button
-                onClick={handleClearAll}
-                style={{
-                  background: "rgba(204,85,85,0.1)",
-                  border: "1px solid rgba(204,85,85,0.3)",
-                  color: "#cc5555",
-                  borderRadius: 6,
-                  padding: "4px 10px",
-                  fontSize: 11,
-                  cursor: "pointer"
-                }}
-              >
-                All
-              </button>
-              <button
-                onClick={() => setShowClearOptions(false)}
-                style={{
-                  background: "none",
-                  border: "1px solid #252535",
-                  color: "#444",
-                  borderRadius: 6,
-                  padding: "4px 10px",
-                  fontSize: 11,
-                  cursor: "pointer"
-                }}
-              >
-                Cancel
-              </button>
-            </div>
-          </div>
-        )}
+        <button
+          onClick={() => chrome.tabs.create({ url: chrome.runtime.getURL("tabs/library.html") })}
+          style={{
+            width: "100%",
+            background: "rgba(255,255,255,0.03)",
+            border: "1px solid #252535",
+            color: "#777",
+            borderRadius: 7,
+            padding: "8px 12px",
+            fontSize: 12,
+            cursor: "pointer"
+          }}
+        >
+          Open library
+        </button>
 
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept=".json,.md"
-          multiple
-          style={{ display: "none" }}
-          onChange={handleFileChange}
-        />
       </div>
     </div>
   )
