@@ -147,7 +147,7 @@ export function buildCombinedContext(transcripts: Transcript[]): string {
       const text = m.content.trim()
       return `${label}: ${text.length > limit ? text.slice(0, limit) + "..." : text}`
     })
-    return [`[MindRelay: "${t.title}" — ${t.source}, ${tDate}]`, ...lines].join("\n")
+    return [`[MindRelay: "${t.title}" — ${t.source}, ${tDate}]`, ...lines].join("\n\n")
   })
 
   return [...sections, "[End of retrieved memory.]"].join("\n\n")
