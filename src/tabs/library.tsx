@@ -2,7 +2,6 @@ import "./library.css"
 import icon from "url:../../assets/icon.png"
 import { useEffect, useMemo, useState } from "react"
 import {
-  buildContextSummary,
   clearAllTranscripts,
   clearBySource,
   deleteTranscript,
@@ -11,6 +10,7 @@ import {
   type Message,
   type Transcript
 } from "../lib/storage"
+import { buildCombinedContext } from "../lib/relevance"
 
 // ─── MD import helpers ────────────────────────────────────────────────────────
 
@@ -144,7 +144,7 @@ export default function LibraryPage() {
   })
 
   async function handleInject(t: Transcript) {
-    const context = buildContextSummary(t)
+    const context = buildCombinedContext([t])
     const tabs = await chrome.tabs.query({
       url: ["https://claude.ai/*", "https://chatgpt.com/*", "https://gemini.google.com/*", "https://grok.com/*"]
     })
