@@ -1,0 +1,55 @@
+{
+  "version": 1,
+  "models": {
+    "claude": {
+      "inputSelectors": [
+        "div[contenteditable=\"true\"].ProseMirror",
+        "div[contenteditable=\"true\"][data-slate-editor=\"true\"]",
+        "[data-testid=\"chat-input\"] div[contenteditable=\"true\"]",
+        "div[contenteditable=\"true\"]"
+      ],
+      "submitSelectors": [
+        "button[aria-label=\"Send message\"]",
+        "button[data-testid=\"send-button\"]",
+        "button[type=\"submit\"]"
+      ]
+    },
+    "chatgpt": {
+      "inputSelectors": [
+        "#prompt-textarea",
+        "div[contenteditable=\"true\"]#prompt-textarea",
+        "div[contenteditable=\"true\"]"
+      ],
+      "submitSelectors": [
+        "button[data-testid=\"send-button\"]",
+        "button[aria-label*=\"Send\"]",
+        "button[aria-label*=\"send\"]"
+      ]
+    },
+    "gemini": {
+      "inputSelectors": [
+        "rich-textarea .ql-editor",
+        "div.ql-editor",
+        "rich-textarea div[contenteditable=\"true\"]",
+        "div[contenteditable=\"true\"]"
+      ],
+      "submitSelectors": [
+        "button[aria-label*=\"Send\"]",
+        "button[aria-label*=\"send\"]",
+        "button.send-button",
+        "button[data-testid*=\"send\"]"
+      ]
+    },
+    "grok": {
+      "inputSelectors": [
+        "div[contenteditable=\"true\"]",
+        "textarea"
+      ],
+      "submitSelectors": [
+        "button[aria-label*=\"Send\"]",
+        "button[aria-label*=\"send\"]",
+        "button[type=\"submit\"]"
+      ]
+    }
+  }
+}

@@ -1,27 +1,30 @@
 import type { PlasmoCSConfig } from "plasmo"
-import {
-  buildMarkdown,
-  getAllTranscripts,
-  saveTranscript,
-  type Message
-} from "../lib/storage"
+import { buildMarkdown, getAllTranscripts, saveTranscript, type Message } from "../lib/storage"
+import type { Transcript } from "../lib/storage"
 import { showSaveToast } from "../lib/toast"
 import { log, warn } from "../lib/log"
+import { rankTranscripts, buildCombinedContext } from "../lib/relevance"
+import { getEditableText, setEditableText, findElement, redispatchEnter } from "../lib/inject"
+import { getModelSelectors } from "../lib/config"
 
 export const config: PlasmoCSConfig = {
   matches: ["https://chatgpt.com/*"],
   run_at: "document_idle"
 }
 
-const MM_NONCE = Array.from(crypto.getRandomValues(new Uint8Array(16)))
-  .map((b) => b.toString(16).padStart(2, "0")).join("")
+// ─── State ────────────────────────────────────────────────────────────────────
 
+let cachedTranscripts: Transcript[] = []
+let injectedIds = new Set<string>()
+let isInjecting = false
 let lastSavedHash = ""
+let saveTimer: ReturnType<typeof setTimeout> | null = null
+let inputSelectors: string[] = []
+let submitSelectors: string[] = []
 
-// ─── Capture ───────────────────────────────────────────────────────────────
+// ─── Capture ──────────────────────────────────────────────────────────────────
 
 function findTurns(): { el: Element; role: "user" | "assistant" }[] {
-  // P1 — conversation-turn testid wrappers (confirmed working)
   const p1 = Array.from(document.querySelectorAll("[data-testid^='conversation-turn']"))
   if (p1.length > 0) {
     const mapped = p1.flatMap((turn) => {
@@ -32,7 +35,6 @@ function findTurns(): { el: Element; role: "user" | "assistant" }[] {
     if (mapped.length > 0) return mapped
   }
 
-  // P2 — fallback: query role elements directly (turn wrapper may have changed)
   const p2 = Array.from(document.querySelectorAll("[data-message-author-role]"))
   if (p2.length > 0) {
     warn("[MindRelay] ChatGPT selector: using fallback P2")
@@ -42,7 +44,6 @@ function findTurns(): { el: Element; role: "user" | "assistant" }[] {
     })
   }
 
-  // P3 — last resort: testid patterns for message containers
   const userEls = Array.from(document.querySelectorAll('[data-testid*="user-message"], [data-testid*="human-message"]'))
   const aiEls = Array.from(document.querySelectorAll('[data-testid*="assistant-message"], [data-testid*="bot-message"]'))
   if (userEls.length > 0 || aiEls.length > 0) {
@@ -60,8 +61,7 @@ function findTurns(): { el: Element; role: "user" | "assistant" }[] {
 }
 
 function extractMessages(): Message[] {
-  const turns = findTurns()
-  return turns.flatMap(({ el, role }) => {
+  return findTurns().flatMap(({ el, role }) => {
     const text = el.textContent?.trim() ?? ""
     return text.length > 2 ? [{ role, content: text }] : []
   })
@@ -83,7 +83,8 @@ function hashMessages(messages: Message[]): string {
 
 async function captureAndSave(): Promise<void> {
   let messages = extractMessages()
-  if (messages.length < 2) return
+  if (!messages.some(m => m.role === "user" && m.content.trim().length > 0)) return
+  if (!messages.some(m => m.role === "assistant" && m.content.trim().length > 0)) return
 
   if (messages[0]?.role === "user" && messages[0].content.includes("[MindRelay")) {
     const sep = messages[0].content.indexOf("\n\n---\n\n")
@@ -104,72 +105,108 @@ async function captureAndSave(): Promise<void> {
   const timestamp = Date.now()
   const markdown = buildMarkdown("ChatGPT", title, messages, timestamp)
 
-  await saveTranscript({
-    source: "chatgpt",
-    title,
-    messages,
-    markdown,
-    timestamp,
-    url: window.location.href
-  })
+  await saveTranscript({ source: "chatgpt", title, messages, markdown, timestamp, url: window.location.href })
   showSaveToast()
 }
 
-// ─── Load memory for new chat (smart auto-retrieval only) ──────────────────
+// ─── Injection ────────────────────────────────────────────────────────────────
 
-async function loadMemoryForNewChat(): Promise<void> {
+async function refreshTranscripts(): Promise<void> {
   const all = await getAllTranscripts()
-  const others = all.filter((t) => t.source !== "chatgpt")
-  if (others.length === 0) return
-
-  window.dispatchEvent(new CustomEvent("mindrelay:memory-loaded", {
-    detail: JSON.stringify({ nonce: MM_NONCE, data: others })
-  }))
+  cachedTranscripts = all.filter(t => t.source !== "chatgpt")
+  log("[MindRelay] ChatGPT: loaded", cachedTranscripts.length, "transcripts for injection")
 }
 
-// ─── Init ──────────────────────────────────────────────────────────────────
+function tryInjectContext(inputEl: HTMLElement): boolean {
+  if (cachedTranscripts.length === 0) return false
 
-let saveTimer: ReturnType<typeof setTimeout> | null = null
+  const userQuery = getEditableText(inputEl)
+  if (!userQuery || userQuery.length < 3) return false
+
+  const ranked = rankTranscripts(userQuery, cachedTranscripts, 3)
+  const newOnes = ranked.filter(t => !injectedIds.has(t.id))
+  if (newOnes.length === 0) return false
+
+  const context = buildCombinedContext(newOnes)
+  const success = setEditableText(inputEl, `${context}\n\n---\n\n${userQuery}`)
+  if (success) {
+    newOnes.forEach(t => injectedIds.add(t.id))
+    log("[MindRelay] ChatGPT: injected", newOnes.length, "transcripts via DOM")
+  }
+  return success
+}
+
+function setupInjection(): void {
+  document.addEventListener("keydown", (e: KeyboardEvent) => {
+    if (isInjecting) return
+    if (e.key !== "Enter" || e.shiftKey || e.ctrlKey || e.metaKey) return
+
+    const inputEl = findElement(inputSelectors)
+    if (!inputEl) return
+    if (!inputEl.contains(e.target as Node) && inputEl !== e.target) return
+
+    if (!tryInjectContext(inputEl)) return
+
+    e.preventDefault()
+    isInjecting = true
+    redispatchEnter(e.target as EventTarget)
+    setTimeout(() => { isInjecting = false }, 200)
+  }, true)
+}
+
+// ─── Navigation / reset ───────────────────────────────────────────────────────
+
+let lastUrl = location.href
+setInterval(() => {
+  if (location.href === lastUrl) return
+  lastUrl = location.href
+  injectedIds = new Set()
+  refreshTranscripts()
+}, 300)
+
+document.addEventListener("click", (e) => {
+  const target = (e.target as Element).closest('[data-testid="create-new-chat-button"]')
+  if (target) {
+    injectedIds = new Set()
+    setTimeout(refreshTranscripts, 150)
+  }
+}, true)
+
+// ─── Popup inject ─────────────────────────────────────────────────────────────
+
+chrome.runtime.onMessage.addListener((msg, sender) => {
+  if (sender.id !== chrome.runtime.id) return
+  if (msg.type === "mindrelay:inject" && typeof msg.context === "string" && msg.context.length <= 100_000) {
+    const inputEl = findElement(inputSelectors)
+    if (!inputEl) { warn("[MindRelay] ChatGPT: popup inject — input not found"); return }
+    const current = getEditableText(inputEl)
+    setEditableText(inputEl, `${msg.context}\n\n---\n\n${current}`)
+    log("[MindRelay] ChatGPT: injected from popup")
+  }
+})
+
+// ─── Save triggers ────────────────────────────────────────────────────────────
 
 window.addEventListener("beforeunload", captureAndSave)
 document.addEventListener("visibilitychange", () => {
   if (document.visibilityState === "hidden") captureAndSave()
 })
 
-// Watch DOM for new messages
 const observer = new MutationObserver(() => {
   if (saveTimer) clearTimeout(saveTimer)
   saveTimer = setTimeout(captureAndSave, 3_000)
 })
 observer.observe(document.body, { childList: true, subtree: true })
 
-// URL polling — reliable in isolated world
-let lastUrl = location.href
-setInterval(() => {
-  if (location.href === lastUrl) return
-  lastUrl = location.href
-  const path = location.pathname
-  if (path === "/" || path === "") loadMemoryForNewChat()
-}, 300)
+// ─── Init ─────────────────────────────────────────────────────────────────────
 
-// New Chat button click — confirmed selector from earlier DOM inspection
-document.addEventListener("click", (e) => {
-  const target = (e.target as Element).closest('[data-testid="create-new-chat-button"]')
-  if (target) setTimeout(loadMemoryForNewChat, 150)
-}, true)
-
-// Direct page load on /
-if (location.pathname === "/" || location.pathname === "") {
-  setTimeout(loadMemoryForNewChat, 500)
+async function init(): Promise<void> {
+  const selectors = await getModelSelectors("chatgpt")
+  inputSelectors = selectors.inputSelectors
+  submitSelectors = selectors.submitSelectors
+  await refreshTranscripts()
+  setupInjection()
 }
 
-// Inject from popup — user clicked Inject on a specific memory
-chrome.runtime.onMessage.addListener((msg, sender) => {
-  if (sender.id !== chrome.runtime.id) return
-  if (msg.type === "mindrelay:inject" && typeof msg.context === "string" && msg.context.length <= 100_000) {
-    window.dispatchEvent(new CustomEvent("mindrelay:context", { detail: JSON.stringify({ nonce: MM_NONCE, context: msg.context }) }))
-    log("[MindRelay] injected from popup")
-  }
-})
-
+init().catch(console.error)
 log("[MindRelay] ChatGPT script loaded:", window.location.href)

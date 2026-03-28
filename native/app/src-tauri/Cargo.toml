@@ -1,0 +1,23 @@
+[package]
+name = "mindrelay-app"
+version = "0.1.0"
+description = "MindRelay desktop app"
+edition = "2021"
+rust-version = "1.77.2"
+
+[lib]
+name = "app_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2.5.6", features = [] }
+
+[dependencies]
+mindrelay-core = { path = "../../crates/mindrelay-core" }
+serde_json = "1.0"
+serde = { version = "1.0", features = ["derive"] }
+tauri = { version = "2.10.3", features = ["tray-icon"] }
+tauri-plugin-shell = "2"
+
+[target.'cfg(windows)'.dependencies]
+winreg = "0.52"

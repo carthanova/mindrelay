@@ -2,6 +2,7 @@ import { dbClear, dbDelete, dbDeleteBySource, dbEvictOldest, dbFindByUrl, dbGetA
 import { log } from "./lib/log"
 import { sendToHost } from "./lib/native-messaging"
 import type { Transcript } from "./lib/storage"
+import { fetchAndCacheConfig } from "./lib/config"
 
 // Free tier cap. Pro tier (200) and Unlimited tier to be enforced once
 // monetization is implemented.
@@ -106,7 +107,21 @@ async function performAutoBackup(): Promise<void> {
   log("[MindRelay] auto-backup saved:", `mindrelay-backup-${date}.json`)
 }
 
-// Schedule daily backup
+// ─── Remote selector config ───────────────────────────────────────────────────
+
+const CONFIG_ALARM = "mindrelay-config-refresh"
+
+// Fetch on startup and schedule daily refresh
+fetchAndCacheConfig().catch(console.error)
+
+chrome.alarms.get(CONFIG_ALARM, (alarm) => {
+  if (!alarm) {
+    chrome.alarms.create(CONFIG_ALARM, { periodInMinutes: 60 * 24 })
+  }
+})
+
+// ─── Schedule daily backup ────────────────────────────────────────────────────
+
 chrome.alarms.get(BACKUP_ALARM, (alarm) => {
   if (!alarm) {
     chrome.alarms.create(BACKUP_ALARM, { periodInMinutes: 60 * 24 })
@@ -114,9 +129,8 @@ chrome.alarms.get(BACKUP_ALARM, (alarm) => {
 })
 
 chrome.alarms.onAlarm.addListener((alarm) => {
-  if (alarm.name === BACKUP_ALARM) {
-    performAutoBackup().catch(console.error)
-  }
+  if (alarm.name === BACKUP_ALARM) performAutoBackup().catch(console.error)
+  if (alarm.name === CONFIG_ALARM) fetchAndCacheConfig().catch(console.error)
 })
 
 // Also backup whenever new data is saved (triggered after DB_PUT)

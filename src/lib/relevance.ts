@@ -27,7 +27,14 @@ const STOP_WORDS = new Set([
   "all","any","few","really","actually","basically","literally","probably",
   "might","maybe","perhaps","however","though","although","because","since",
   // semantically ambiguous — mean different things in tech vs personal contexts
-  "live","life","world","people","place","time","work","thing","things","way"
+  "live","life","world","people","place","time","work","thing","things","way",
+  // query instruction words — describe HOW the user is asking, not WHAT about
+  // these appear in nearly every query and match unrelated transcripts
+  "learn","learning","learned","interested","interest","interesting",
+  "understand","understanding","explain","explanation","describe","description",
+  "discuss","discussing","information","info","details","overview","summary",
+  "tell","provide","share","know","knowing","curious","question","answer",
+  "little","bit","more","less","brief","quick","deep","dive","intro","introduction"
 ])
 
 // Short words that are meaningful in tech/AI contexts — never filtered
@@ -61,19 +68,22 @@ function termFrequency(tokens: string[]): Map<string, number> {
 const TITLE_WEIGHT = 5      // title match — strongest topic signal
 const FIRST_MSG_WEIGHT = 3  // first user message — sets the topic
 const BODY_FREQ_CAP = 4     // max freq contribution per term in body text
-const MIN_SCORE = 2         // below this = not relevant, don't inject
-const SCORE_GAP_RATIO = 0.5 // secondary results must score ≥ 50% of top score
-                             // prevents loosely-related transcripts from riding
-                             // along when only one is clearly the best match
+const MIN_SCORE = 5         // below this = not relevant, don't inject (raised from 2)
+const MIN_TERM_OVERLAP = 2  // at least 2 distinct query terms must match
+const SCORE_GAP_RATIO = 0.65 // secondary results must score ≥ 65% of top score (raised from 0.5)
 
-function scoreTranscript(queryTerms: Set<string>, transcript: Transcript): number {
-  if (queryTerms.size === 0) return 0
+function scoreTranscript(
+  queryTerms: Set<string>,
+  transcript: Transcript
+): { score: number; termOverlap: number } {
+  if (queryTerms.size === 0) return { score: 0, termOverlap: 0 }
   let score = 0
+  const matchedTerms = new Set<string>()
 
   // Title — strongest signal
   const titleFreq = termFrequency(tokenize(transcript.title))
   for (const term of queryTerms) {
-    if (titleFreq.has(term)) score += TITLE_WEIGHT
+    if (titleFreq.has(term)) { score += TITLE_WEIGHT; matchedTerms.add(term) }
   }
 
   // First user message — topic statement, highest body weight
@@ -81,7 +91,8 @@ function scoreTranscript(queryTerms: Set<string>, transcript: Transcript): numbe
   if (firstUser) {
     const freq = termFrequency(tokenize(firstUser.content))
     for (const term of queryTerms) {
-      score += Math.min(freq.get(term) ?? 0, BODY_FREQ_CAP) * FIRST_MSG_WEIGHT
+      const hits = freq.get(term) ?? 0
+      if (hits > 0) { score += Math.min(hits, BODY_FREQ_CAP) * FIRST_MSG_WEIGHT; matchedTerms.add(term) }
     }
   }
 
@@ -90,11 +101,12 @@ function scoreTranscript(queryTerms: Set<string>, transcript: Transcript): numbe
     if (msg === firstUser) continue
     const freq = termFrequency(tokenize(msg.content))
     for (const term of queryTerms) {
-      score += Math.min(freq.get(term) ?? 0, BODY_FREQ_CAP)
+      const hits = freq.get(term) ?? 0
+      if (hits > 0) { score += Math.min(hits, BODY_FREQ_CAP); matchedTerms.add(term) }
     }
   }
 
-  return score
+  return { score, termOverlap: matchedTerms.size }
 }
 
 // ─── Public API ───────────────────────────────────────────────────────────────
@@ -116,8 +128,8 @@ export function rankTranscripts(
   if (queryTerms.size === 0) return []
 
   const scored = transcripts
-    .map((t) => ({ t, score: scoreTranscript(queryTerms, t) }))
-    .filter(({ score }) => score >= MIN_SCORE)
+    .map((t) => ({ t, ...scoreTranscript(queryTerms, t) }))
+    .filter(({ score, termOverlap }) => score >= MIN_SCORE && termOverlap >= MIN_TERM_OVERLAP)
     .sort((a, b) =>
       b.score !== a.score
         ? b.score - a.score

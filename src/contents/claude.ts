@@ -1,30 +1,36 @@
 import type { PlasmoCSConfig } from "plasmo"
 import { buildMarkdown, getAllTranscripts, saveTranscript, type Message } from "../lib/storage"
+import type { Transcript } from "../lib/storage"
 import { showSaveToast } from "../lib/toast"
 import { log, warn } from "../lib/log"
+import { rankTranscripts, buildCombinedContext } from "../lib/relevance"
+import { getEditableText, setEditableText, findElement, redispatchEnter } from "../lib/inject"
+import { getModelSelectors } from "../lib/config"
 
 export const config: PlasmoCSConfig = {
   matches: ["https://claude.ai/*"],
   run_at: "document_idle"
 }
 
-// Shared secret for isolated→main world event authentication
-const MM_NONCE = Array.from(crypto.getRandomValues(new Uint8Array(16)))
-  .map((b) => b.toString(16).padStart(2, "0")).join("")
+// ─── State ───────────────────────────────────────────────────────────────────
 
+let cachedTranscripts: Transcript[] = []
+let injectedIds = new Set<string>()
+let isInjecting = false
 let lastSavedHash = ""
 let saveTimer: ReturnType<typeof setTimeout> | null = null
+let inputSelectors: string[] = []
+let submitSelectors: string[] = []
+
+// ─── Capture ──────────────────────────────────────────────────────────────────
 
 function findUserEls(): Element[] {
-  // P1 — confirmed working selector
   const p1 = Array.from(document.querySelectorAll('[data-testid="user-message"]'))
   if (p1.length > 0) return p1
 
-  // P2 — fallback: any element whose testid contains "human" or "user-turn"
   const p2 = Array.from(document.querySelectorAll('[data-testid*="human-turn"], [data-testid*="user-turn"]'))
   if (p2.length > 0) { warn("[MindRelay] Claude user selector: using fallback P2"); return p2 }
 
-  // P3 — last resort: elements with an explicit user role attribute
   const p3 = Array.from(document.querySelectorAll('[data-message-author-role="human"], [data-message-author-role="user"]'))
   if (p3.length > 0) { warn("[MindRelay] Claude user selector: using fallback P3"); return p3 }
 
@@ -32,7 +38,6 @@ function findUserEls(): Element[] {
 }
 
 function findAiEls(): Element[] {
-  // P1 — retry button → .group parent (confirmed working)
   const retryBtns = Array.from(document.querySelectorAll('[data-testid="action-bar-retry"]'))
   if (retryBtns.length > 0) {
     const els = retryBtns
@@ -42,12 +47,10 @@ function findAiEls(): Element[] {
     if (els.length > 0) return els
   }
 
-  // P2 — fallback: .group elements that directly follow a user message (no retry dependency)
   const p2 = Array.from(document.querySelectorAll(".group"))
     .filter((el) => !el.querySelector('[data-testid="user-message"]') && el.textContent!.trim().length > 10)
   if (p2.length > 0) { warn("[MindRelay] Claude AI selector: using fallback P2"); return p2 }
 
-  // P3 — last resort: any element whose testid suggests an assistant response
   const p3 = Array.from(document.querySelectorAll('[data-testid*="assistant"], [data-testid*="response-"]'))
   if (p3.length > 0) { warn("[MindRelay] Claude AI selector: using fallback P3"); return p3 }
 
@@ -56,57 +59,38 @@ function findAiEls(): Element[] {
 
 function extractMessages(): Message[] {
   const messages: Message[] = []
-
   const userEls = findUserEls()
   const aiEls = findAiEls()
+  if (userEls.length === 0 && aiEls.length === 0) return []
 
-  if (userEls.length === 0 && aiEls.length === 0) {
-    log("[MindRelay] no user or AI elements found")
-    return []
-  }
-
-  // Sort all turns by DOM order
   const allTurns = [...userEls, ...aiEls].sort((a, b) =>
     a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1
   )
 
   for (const el of allTurns) {
     const isUser = el.getAttribute("data-testid") === "user-message"
-
     let text: string
 
     if (isUser) {
       text = el.textContent?.trim() ?? ""
     } else {
-      // AI turn: exclude the action bar (4 levels up from retry button)
       const retryBtn = el.querySelector('[data-testid="action-bar-retry"]')
       let actionBar: Element | null = retryBtn
-      for (let i = 0; i < 4; i++) {
-        actionBar = actionBar?.parentElement ?? null
-      }
+      for (let i = 0; i < 4; i++) actionBar = actionBar?.parentElement ?? null
 
       const clone = el.cloneNode(true) as Element
       if (actionBar) {
-        // Find the matching node in the clone and remove it
         const retryInClone = clone.querySelector('[data-testid="action-bar-retry"]')
         let actionBarInClone: Element | null = retryInClone
-        for (let i = 0; i < 4; i++) {
-          actionBarInClone = actionBarInClone?.parentElement ?? null
-        }
+        for (let i = 0; i < 4; i++) actionBarInClone = actionBarInClone?.parentElement ?? null
         actionBarInClone?.remove()
       }
-
-      // Also strip "Thought for Xs" thinking indicators
       clone.querySelectorAll('[class*="thinking"], [class*="Thinking"]').forEach((n) => n.remove())
       text = clone.textContent?.trim() ?? ""
-
-      // Remove "Thought for Xs" prefix if still present
       text = text.replace(/^Thought for \d+s\s*/i, "").trim()
     }
 
-    if (text.length > 2) {
-      messages.push({ role: isUser ? "user" : "assistant", content: text })
-    }
+    if (text.length > 2) messages.push({ role: isUser ? "user" : "assistant", content: text })
   }
 
   log("[MindRelay] extracted messages:", messages.length)
@@ -114,7 +98,6 @@ function extractMessages(): Message[] {
 }
 
 function getTitleFromMessages(messages: Message[]): string {
-  // Use Claude's auto-generated page title when available
   const pageTitle = document.title.replace(/\s*[-|–]\s*Claude\s*$/i, "").trim()
   if (pageTitle && !/^claude$/i.test(pageTitle)) return pageTitle
 
@@ -130,10 +113,9 @@ function hashMessages(messages: Message[]): string {
 
 async function captureAndSave(): Promise<void> {
   let messages = extractMessages()
-  if (messages.length < 2) return
+  if (!messages.some(m => m.role === "user" && m.content.trim().length > 0)) return
+  if (!messages.some(m => m.role === "assistant" && m.content.trim().length > 0)) return
 
-  // Strip injected MemoryMesh context from the first user message so we
-  // never save the context header as if it were real conversation content.
   if (messages[0]?.role === "user" && messages[0].content.includes("[MindRelay")) {
     const sep = messages[0].content.indexOf("\n\n---\n\n")
     if (sep !== -1) {
@@ -153,53 +135,88 @@ async function captureAndSave(): Promise<void> {
   const timestamp = Date.now()
   const markdown = buildMarkdown("Claude", title, messages, timestamp)
 
-  await saveTranscript({
-    source: "claude",
-    title,
-    messages,
-    markdown,
-    timestamp,
-    url: window.location.href
-  })
-
+  await saveTranscript({ source: "claude", title, messages, markdown, timestamp, url: window.location.href })
   showSaveToast()
   log("[MindRelay] saved:", title)
 }
 
-// ─── Load memory for new chat (smart auto-retrieval only) ─────────────────
+// ─── Injection ────────────────────────────────────────────────────────────────
 
-async function loadMemoryForNewChat(): Promise<void> {
+async function refreshTranscripts(): Promise<void> {
   const all = await getAllTranscripts()
-  const others = all.filter((t) => t.source !== "claude")
-  if (others.length === 0) return
-
-  window.dispatchEvent(new CustomEvent("mindrelay:memory-loaded", {
-    detail: JSON.stringify({ nonce: MM_NONCE, data: others })
-  }))
+  cachedTranscripts = all.filter(t => t.source !== "claude")
+  log("[MindRelay] Claude: loaded", cachedTranscripts.length, "transcripts for injection")
 }
 
-// URL polling — reliable in isolated world; pushState override only works in main world
+function tryInjectContext(inputEl: HTMLElement): boolean {
+  if (cachedTranscripts.length === 0) return false
+
+  const userQuery = getEditableText(inputEl)
+  if (!userQuery || userQuery.length < 3) return false
+
+  const ranked = rankTranscripts(userQuery, cachedTranscripts, 3)
+  const newOnes = ranked.filter(t => !injectedIds.has(t.id))
+  if (newOnes.length === 0) return false
+
+  const context = buildCombinedContext(newOnes)
+  const success = setEditableText(inputEl, `${context}\n\n---\n\n${userQuery}`)
+  if (success) {
+    newOnes.forEach(t => injectedIds.add(t.id))
+    log("[MindRelay] Claude: injected", newOnes.length, "transcripts via DOM")
+  }
+  return success
+}
+
+function setupInjection(): void {
+  document.addEventListener("keydown", (e: KeyboardEvent) => {
+    if (isInjecting) return
+    if (e.key !== "Enter" || e.shiftKey || e.ctrlKey || e.metaKey) return
+
+    const inputEl = findElement(inputSelectors)
+    if (!inputEl) return
+    if (!inputEl.contains(e.target as Node) && inputEl !== e.target) return
+
+    if (!tryInjectContext(inputEl)) return
+
+    e.preventDefault()
+    isInjecting = true
+    redispatchEnter(e.target as EventTarget)
+    setTimeout(() => { isInjecting = false }, 200)
+  }, true)
+}
+
+// ─── Navigation / reset ───────────────────────────────────────────────────────
+
 let lastUrl = location.href
 setInterval(() => {
   if (location.href === lastUrl) return
   lastUrl = location.href
-  if (location.pathname === "/new" || location.pathname.startsWith("/new/")) {
-    loadMemoryForNewChat()
-  }
+  injectedIds = new Set()
+  refreshTranscripts()
 }, 300)
 
-// New Chat button click — Claude links to /new
 document.addEventListener("click", (e) => {
   const target = (e.target as Element).closest('a[href="/new"]')
-  if (target) setTimeout(loadMemoryForNewChat, 150)
+  if (target) {
+    injectedIds = new Set()
+    setTimeout(refreshTranscripts, 150)
+  }
 }, true)
 
-// Direct page load on /new
-if (location.pathname === "/new" || location.pathname.startsWith("/new/")) {
-  setTimeout(loadMemoryForNewChat, 500)
-}
+// ─── Popup inject ─────────────────────────────────────────────────────────────
 
-// ─── Save ──────────────────────────────────────────────────────────────────
+chrome.runtime.onMessage.addListener((msg, sender) => {
+  if (sender.id !== chrome.runtime.id) return
+  if (msg.type === "mindrelay:inject" && typeof msg.context === "string" && msg.context.length <= 100_000) {
+    const inputEl = findElement(inputSelectors)
+    if (!inputEl) { warn("[MindRelay] Claude: popup inject — input not found"); return }
+    const current = getEditableText(inputEl)
+    setEditableText(inputEl, `${msg.context}\n\n---\n\n${current}`)
+    log("[MindRelay] Claude: injected from popup")
+  }
+})
+
+// ─── Save triggers ────────────────────────────────────────────────────────────
 
 window.addEventListener("beforeunload", () => captureAndSave())
 document.addEventListener("visibilitychange", () => {
@@ -211,15 +228,17 @@ const observer = new MutationObserver(() => {
   saveTimer = setTimeout(captureAndSave, 3_000)
 })
 observer.observe(document.body, { childList: true, subtree: true })
-
 setTimeout(captureAndSave, 5_000)
-// Inject from popup — user clicked Inject on a specific memory
-chrome.runtime.onMessage.addListener((msg, sender) => {
-  if (sender.id !== chrome.runtime.id) return
-  if (msg.type === "mindrelay:inject" && typeof msg.context === "string" && msg.context.length <= 100_000) {
-    window.dispatchEvent(new CustomEvent("mindrelay:context", { detail: JSON.stringify({ nonce: MM_NONCE, context: msg.context }) }))
-    log("[MindRelay] injected from popup")
-  }
-})
 
+// ─── Init ─────────────────────────────────────────────────────────────────────
+
+async function init(): Promise<void> {
+  const selectors = await getModelSelectors("claude")
+  inputSelectors = selectors.inputSelectors
+  submitSelectors = selectors.submitSelectors
+  await refreshTranscripts()
+  setupInjection()
+}
+
+init().catch(console.error)
 log("[MindRelay] Claude script loaded:", window.location.href)

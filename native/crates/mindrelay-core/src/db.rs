@@ -168,7 +168,9 @@ impl Database {
 }
 
 pub fn default_db_path() -> PathBuf {
-    ProjectDirs::from("com", "mindrelay", "MindRelay")
+    // Use empty qualifier/org so macOS resolves to ~/Library/Application Support/MindRelay
+    // instead of ~/Library/Application Support/com.mindrelay.MindRelay
+    ProjectDirs::from("", "", "MindRelay")
         .map(|d| d.data_local_dir().join("memory.db"))
         .unwrap_or_else(|| PathBuf::from("memory.db"))
 }
