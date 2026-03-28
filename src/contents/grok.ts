@@ -37,16 +37,13 @@ function findAiEls(): Element[] {
 }
 
 // Strip MemoryMesh context prepended to the first user message so it doesn't
-// pollute the saved transcript. When Grok renders the injected markdown, the
-// `---` separator becomes an <hr> (no text), so we locate the context by its
-// known end markers instead.
+// pollute the saved transcript. Context is now appended after the user's
+// message with a --- separator. The separator renders as <hr> in Grok's DOM
+// (no textContent), so we strip everything from [MindRelay onward instead.
 function cleanUserText(raw: string): string {
-  if (!raw.startsWith("[MindRelay")) return raw
-  for (const marker of ["[End of retrieved memory.]", "[End of context.]"]) {
-    const idx = raw.indexOf(marker)
-    if (idx !== -1) return raw.slice(idx + marker.length).trim()
-  }
-  return raw
+  const idx = raw.indexOf("[MindRelay")
+  if (idx === -1) return raw
+  return raw.slice(0, idx).trim()
 }
 
 function extractMessages(): Message[] {

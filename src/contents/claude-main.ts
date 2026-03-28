@@ -99,7 +99,7 @@ window.fetch = async function (
         }
 
         if (context) {
-          body.prompt = `${context}\n\n---\n\n${body.prompt}`
+          body.prompt = `${body.prompt}\n\n---\n\n${context}`
           contextInjected = true
           init = { ...init, body: JSON.stringify(body) }
           log("[MindRelay] context injected into Claude request")

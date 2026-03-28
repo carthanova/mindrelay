@@ -110,7 +110,7 @@ window.fetch = async function (
       if (context) {
         // Primary format: body.message is a string
         if (typeof body.message === "string" && body.message.length > 0) {
-          body.message = `${context}\n\n---\n\n${body.message}`
+          body.message = `${body.message}\n\n---\n\n${context}`
           contextInjected = true
           init = { ...init, body: JSON.stringify(body) }
           log("[MindRelay] Grok: context injected into body.message")
@@ -124,12 +124,12 @@ window.fetch = async function (
                 : null
 
           if (alt === "responses") {
-            ;(body.responses as string[])[0] = `${context}\n\n---\n\n${(body.responses as string[])[0]}`
+            ;(body.responses as string[])[0] = `${(body.responses as string[])[0]}\n\n---\n\n${context}`
             contextInjected = true
             init = { ...init, body: JSON.stringify(body) }
             log("[MindRelay] Grok: context injected into body.responses[0]")
           } else if (alt === "query") {
-            body.query = `${context}\n\n---\n\n${body.query as string}`
+            body.query = `${body.query as string}\n\n---\n\n${context}`
             contextInjected = true
             init = { ...init, body: JSON.stringify(body) }
             log("[MindRelay] Grok: context injected into body.query")

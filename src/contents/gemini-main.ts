@@ -119,7 +119,7 @@ window.fetch = async function (
           const userMsg = inner?.[0]?.[0]
 
           if (typeof userMsg === "string" && userMsg.length > 0) {
-            inner[0][0] = `${context}\n\n---\n\n${userMsg}`;
+            inner[0][0] = `${userMsg}\n\n---\n\n${context}`;
             (outer as unknown[])[1] = JSON.stringify(inner)
             contextInjected = true
             init = { ...init, body: JSON.stringify(outer) }

@@ -99,7 +99,7 @@ window.fetch = async function (
         }
 
         if (context) {
-          firstMsg.content.parts[0] = `${context}\n\n---\n\n${firstMsg.content.parts[0]}`
+          firstMsg.content.parts[0] = `${firstMsg.content.parts[0]}\n\n---\n\n${context}`
           contextInjected = true
           init = { ...init, body: JSON.stringify(body) }
           log("[MindRelay] context injected into ChatGPT request")
