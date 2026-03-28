@@ -114,6 +114,7 @@ export default function LibraryPage() {
   const [injectStatus, setInjectStatus] = useState<string | null>(null)
   const [isDragOver, setIsDragOver] = useState(false)
   const [showInjectMenu, setShowInjectMenu] = useState(false)
+  const [showClearMenu, setShowClearMenu] = useState(false)
 
   useEffect(() => {
     getAllTranscripts().then((data) => {
@@ -128,6 +129,13 @@ export default function LibraryPage() {
     document.addEventListener("click", close)
     return () => document.removeEventListener("click", close)
   }, [showInjectMenu])
+
+  useEffect(() => {
+    if (!showClearMenu) return
+    const close = () => setShowClearMenu(false)
+    document.addEventListener("click", close)
+    return () => document.removeEventListener("click", close)
+  }, [showClearMenu])
 
   const storageInfo = useMemo(() => {
     if (transcripts.length === 0) return "0 KB"
@@ -411,20 +419,77 @@ export default function LibraryPage() {
           >
             Export
           </button>
-          <button
-            onClick={handleClearAll}
-            style={{
-              background: "transparent",
-              border: "1px solid rgba(204,85,85,0.2)",
-              color: "#cc5555",
-              borderRadius: 7,
-              padding: "6px 14px",
-              fontSize: 12,
-              cursor: "pointer"
-            }}
-          >
-            Clear all
-          </button>
+          <div style={{ position: "relative" }}>
+            <button
+              onClick={(e) => { e.stopPropagation(); setShowClearMenu((v) => !v) }}
+              style={{
+                background: "transparent",
+                border: "1px solid rgba(204,85,85,0.2)",
+                color: "#cc5555",
+                borderRadius: 7,
+                padding: "6px 14px",
+                fontSize: 12,
+                cursor: "pointer",
+                display: "flex",
+                alignItems: "center",
+                gap: 6
+              }}
+            >
+              Clear
+              <span style={{ fontSize: 10, opacity: 0.7 }}>▾</span>
+            </button>
+            {showClearMenu && (
+              <div style={{
+                position: "absolute",
+                top: "calc(100% + 6px)",
+                right: 0,
+                background: "#161625",
+                border: "1px solid #252535",
+                borderRadius: 8,
+                overflow: "hidden",
+                zIndex: 50,
+                minWidth: 160,
+                boxShadow: "0 8px 24px rgba(0,0,0,0.4)"
+              }}>
+                <button
+                  onClick={() => { setShowClearMenu(false); handleClearAll() }}
+                  style={{
+                    display: "block", width: "100%", textAlign: "left",
+                    background: "transparent", border: "none",
+                    borderBottom: "1px solid #1e1e2e",
+                    color: "#cc5555", padding: "10px 14px", fontSize: 13, cursor: "pointer"
+                  }}
+                  onMouseEnter={(e) => (e.currentTarget.style.background = "#1e1e35")}
+                  onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
+                >
+                  Clear All
+                </button>
+                {presentSources.map((src) => {
+                  const isGrokSrc = src === "grok"
+                  const c = SOURCE_COLORS[src] ?? "#888"
+                  return (
+                    <button
+                      key={src}
+                      onClick={() => { setShowClearMenu(false); handleClearSource(src) }}
+                      style={{
+                        display: "block", width: "100%", textAlign: "center",
+                        background: isGrokSrc ? "#000000" : `${c}28`,
+                        border: "none", borderBottom: "1px solid #1e1e2e",
+                        color: isGrokSrc ? "#ffffff" : c,
+                        padding: "9px 14px", fontSize: 10, fontWeight: 700,
+                        textTransform: "uppercase", letterSpacing: "0.05em",
+                        cursor: "pointer"
+                      }}
+                      onMouseEnter={(e) => (e.currentTarget.style.opacity = "0.8")}
+                      onMouseLeave={(e) => (e.currentTarget.style.opacity = "1")}
+                    >
+                      {src}
+                    </button>
+                  )
+                })}
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
@@ -686,20 +751,6 @@ export default function LibraryPage() {
                       }}
                     >
                       Delete
-                    </button>
-                    <button
-                      onClick={() => handleClearSource(selected.source)}
-                      style={{
-                        background: "transparent",
-                        border: "1px solid #252535",
-                        color: "#444",
-                        borderRadius: 7,
-                        padding: "7px 14px",
-                        fontSize: 13,
-                        cursor: "pointer"
-                      }}
-                    >
-                      Clear {selected.source}
                     </button>
                   </div>
                 </div>
