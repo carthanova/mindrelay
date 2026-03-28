@@ -77,10 +77,13 @@ export function buildMarkdown(
 ): string {
   const date = new Date(timestamp).toISOString().split("T")[0]
   const lines = [
-    `# ${title}`,
-    `**Source:** ${source} | **Date:** ${date}`,
     `---`,
-    ""
+    `date: ${date}`,
+    `source: ${source}`,
+    `---`,
+    ``,
+    `# ${title}`,
+    ``
   ]
   for (const msg of messages) {
     const label = msg.role === "user" ? "**You:**" : "**Assistant:**"

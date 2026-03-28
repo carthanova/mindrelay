@@ -11,6 +11,7 @@ import {
   type Transcript
 } from "../lib/storage"
 import { buildCombinedContext } from "../lib/relevance"
+import { buildMarkdown } from "../lib/storage"
 
 // ─── MD import helpers ────────────────────────────────────────────────────────
 
@@ -196,6 +197,19 @@ export default function LibraryPage() {
     const a = document.createElement("a")
     a.href = url
     a.download = `mindrelay-backup-${new Date().toISOString().split("T")[0]}.json`
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
+  function handleDownloadMd(t: Transcript) {
+    const md = buildMarkdown(t.source, t.title, t.messages, t.timestamp)
+    const blob = new Blob([md], { type: "text/markdown" })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement("a")
+    a.href = url
+    const slug = t.title.toLowerCase().replace(/[^a-z0-9]+/g, "_").slice(0, 50)
+    const date = new Date(t.timestamp).toISOString().split("T")[0]
+    a.download = `conversation_${slug}_${date}.md`
     a.click()
     URL.revokeObjectURL(url)
   }
@@ -579,6 +593,20 @@ export default function LibraryPage() {
                       }}
                     >
                       Inject into AI
+                    </button>
+                    <button
+                      onClick={() => handleDownloadMd(selected)}
+                      style={{
+                        background: "transparent",
+                        border: "1px solid #252535",
+                        color: "#666",
+                        borderRadius: 7,
+                        padding: "7px 14px",
+                        fontSize: 13,
+                        cursor: "pointer"
+                      }}
+                    >
+                      Download .md
                     </button>
                     <button
                       onClick={() => handleDelete(selected.id)}
