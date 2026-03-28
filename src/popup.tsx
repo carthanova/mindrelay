@@ -374,8 +374,8 @@ export default function IndexPopup() {
                   fontWeight: 700,
                   textTransform: "uppercase",
                   letterSpacing: "0.05em",
-                  color,
-                  background: `${color}18`,
+                  color: t.source === "grok" ? "#ffffff" : color,
+                  background: t.source === "grok" ? "#000000" : `${color}18`,
                   padding: "2px 6px",
                   borderRadius: 4
                 }}>

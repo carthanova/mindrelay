@@ -153,10 +153,10 @@ export default function LibraryPage() {
   })
 
   const INJECT_TARGETS = [
-    { name: "Claude",   url: "https://claude.ai/*" },
-    { name: "ChatGPT",  url: "https://chatgpt.com/*" },
-    { name: "Gemini",   url: "https://gemini.google.com/*" },
-    { name: "Grok",     url: "https://grok.com/*" }
+    { name: "Claude",   source: "claude",   url: "https://claude.ai/*" },
+    { name: "ChatGPT",  source: "chatgpt",  url: "https://chatgpt.com/*" },
+    { name: "Gemini",   source: "gemini",   url: "https://gemini.google.com/*" },
+    { name: "Grok",     source: "grok",     url: "https://grok.com/*" }
   ] as const
 
   async function handleInject(t: Transcript, targetName: string) {
@@ -476,8 +476,8 @@ export default function LibraryPage() {
                       fontWeight: 700,
                       textTransform: "uppercase",
                       letterSpacing: "0.05em",
-                      color,
-                      background: `${color}18`,
+                      color: t.source === "grok" ? "#ffffff" : color,
+                      background: t.source === "grok" ? "#000000" : `${color}18`,
                       padding: "2px 6px",
                       borderRadius: 4
                     }}>
@@ -557,8 +557,8 @@ export default function LibraryPage() {
                         fontWeight: 700,
                         textTransform: "uppercase",
                         letterSpacing: "0.05em",
-                        color: SOURCE_COLORS[selected.source] ?? "#888",
-                        background: `${SOURCE_COLORS[selected.source] ?? "#888"}18`,
+                        color: selected.source === "grok" ? "#ffffff" : (SOURCE_COLORS[selected.source] ?? "#888"),
+                        background: selected.source === "grok" ? "#000000" : `${SOURCE_COLORS[selected.source] ?? "#888"}18`,
                         padding: "3px 8px",
                         borderRadius: 4
                       }}>
@@ -626,28 +626,46 @@ export default function LibraryPage() {
                             boxShadow: "0 8px 24px rgba(0,0,0,0.4)"
                           }}
                         >
-                          {INJECT_TARGETS.map(({ name }) => (
-                            <button
-                              key={name}
-                              onClick={() => handleInject(selected, name)}
-                              style={{
-                                display: "block",
-                                width: "100%",
-                                textAlign: "left",
-                                background: "transparent",
-                                border: "none",
-                                borderBottom: "1px solid #1e1e2e",
-                                color: "#ccc",
-                                padding: "10px 14px",
-                                fontSize: 13,
-                                cursor: "pointer"
-                              }}
-                              onMouseEnter={(e) => (e.currentTarget.style.background = "#1e1e35")}
-                              onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
-                            >
-                              {name}
-                            </button>
-                          ))}
+                          {INJECT_TARGETS.map(({ name, source }) => {
+                            const isGrok = source === "grok"
+                            const c = SOURCE_COLORS[source] ?? "#888"
+                            return (
+                              <button
+                                key={name}
+                                onClick={() => handleInject(selected, name)}
+                                style={{
+                                  display: "flex",
+                                  alignItems: "center",
+                                  gap: 8,
+                                  width: "100%",
+                                  textAlign: "left",
+                                  background: "transparent",
+                                  border: "none",
+                                  borderBottom: "1px solid #1e1e2e",
+                                  color: "#ccc",
+                                  padding: "10px 14px",
+                                  fontSize: 13,
+                                  cursor: "pointer"
+                                }}
+                                onMouseEnter={(e) => (e.currentTarget.style.background = "#1e1e35")}
+                                onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
+                              >
+                                <span style={{
+                                  fontSize: 9,
+                                  fontWeight: 700,
+                                  textTransform: "uppercase",
+                                  letterSpacing: "0.05em",
+                                  color: isGrok ? "#ffffff" : c,
+                                  background: isGrok ? "#000000" : `${c}28`,
+                                  padding: "2px 6px",
+                                  borderRadius: 4
+                                }}>
+                                  {source}
+                                </span>
+                                {name}
+                              </button>
+                            )
+                          })}
                         </div>
                       )}
                     </div>
