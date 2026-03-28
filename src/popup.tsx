@@ -229,17 +229,6 @@ export default function IndexPopup() {
 
         {/* Search */}
         <div style={{ position: "relative", marginBottom: presentSources.length > 0 ? 10 : 0 }}>
-          <span style={{
-            position: "absolute",
-            left: 9,
-            top: "50%",
-            transform: "translateY(-50%)",
-            fontSize: 12,
-            color: "#444",
-            pointerEvents: "none"
-          }}>
-            🔍
-          </span>
           <input
             type="text"
             placeholder="Search memories..."
@@ -253,7 +242,7 @@ export default function IndexPopup() {
               borderRadius: 8,
               color: "#ddd",
               fontSize: 13,
-              padding: "7px 10px 7px 28px",
+              padding: "7px 10px",
               outline: "none"
             }}
           />

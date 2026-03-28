@@ -305,17 +305,6 @@ export default function LibraryPage() {
 
         {/* Search */}
         <div style={{ position: "relative", flex: 1, maxWidth: 420 }}>
-          <span style={{
-            position: "absolute",
-            left: 10,
-            top: "50%",
-            transform: "translateY(-50%)",
-            fontSize: 12,
-            color: "#333",
-            pointerEvents: "none"
-          }}>
-            🔍
-          </span>
           <input
             type="text"
             placeholder="Search all memories..."
@@ -329,7 +318,7 @@ export default function LibraryPage() {
               borderRadius: 8,
               color: "#ddd",
               fontSize: 13,
-              padding: "7px 12px 7px 28px",
+              padding: "7px 12px",
               outline: "none"
             }}
           />
