@@ -1,0 +1,9 @@
+{
+  "name": "com.mindrelay.host",
+  "description": "MindRelay native messaging host",
+  "path": "BINARY_PATH_PLACEHOLDER",
+  "type": "stdio",
+  "allowed_origins": [
+    "chrome-extension://EXTENSION_ID_PLACEHOLDER/"
+  ]
+}

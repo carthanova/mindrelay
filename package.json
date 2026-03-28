@@ -35,7 +35,8 @@
       "storage",
       "activeTab",
       "downloads",
-      "alarms"
+      "alarms",
+      "nativeMessaging"
     ]
   }
 }

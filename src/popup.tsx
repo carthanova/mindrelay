@@ -515,9 +515,9 @@ export default function IndexPopup() {
           onClick={() => chrome.tabs.create({ url: chrome.runtime.getURL("tabs/library.html") })}
           style={{
             width: "100%",
-            background: "rgba(255,255,255,0.03)",
-            border: "1px solid #252535",
-            color: "#777",
+            background: "rgba(124,106,247,0.1)",
+            border: "1px solid rgba(124,106,247,0.2)",
+            color: "#7c6af7",
             borderRadius: 7,
             padding: "8px 12px",
             fontSize: 12,

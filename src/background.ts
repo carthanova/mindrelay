@@ -1,5 +1,6 @@
 import { dbClear, dbDelete, dbDeleteBySource, dbEvictOldest, dbFindByUrl, dbGetAll, dbPut } from "./lib/db"
 import { log } from "./lib/log"
+import { sendToHost } from "./lib/native-messaging"
 import type { Transcript } from "./lib/storage"
 
 // Free tier cap. Pro tier (200) and Unlimited tier to be enforced once
@@ -152,19 +153,23 @@ async function handleMessage(msg: {
     case "DB_PUT":
       await dbPut(msg.data as Transcript)
       await dbEvictOldest(MAX_TRANSCRIPTS)
+      sendToHost({ type: "PUT", data: msg.data })
       updateBadge().catch(console.error)
       maybeBackup().catch(console.error)
       return
     case "DB_DELETE":
       await dbDelete(msg.id as string)
+      sendToHost({ type: "DELETE", id: msg.id })
       updateBadge().catch(console.error)
       return
     case "DB_DELETE_BY_SOURCE":
       await dbDeleteBySource(msg.source as Transcript["source"])
+      sendToHost({ type: "DELETE_BY_SOURCE", source: msg.source })
       updateBadge().catch(console.error)
       return
     case "DB_CLEAR":
       await dbClear()
+      sendToHost({ type: "CLEAR" })
       updateBadge().catch(console.error)
       return
     case "DB_FIND_BY_URL":
