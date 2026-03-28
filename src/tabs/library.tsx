@@ -662,7 +662,6 @@ export default function LibraryPage() {
                                 }}>
                                   {source}
                                 </span>
-                                {name}
                               </button>
                             )
                           })}
