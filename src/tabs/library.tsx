@@ -634,34 +634,24 @@ export default function LibraryPage() {
                                 key={name}
                                 onClick={() => handleInject(selected, name)}
                                 style={{
-                                  display: "flex",
-                                  alignItems: "center",
-                                  gap: 8,
+                                  display: "block",
                                   width: "100%",
-                                  textAlign: "left",
-                                  background: "transparent",
+                                  textAlign: "center",
+                                  background: isGrok ? "#000000" : `${c}28`,
                                   border: "none",
                                   borderBottom: "1px solid #1e1e2e",
-                                  color: "#ccc",
-                                  padding: "10px 14px",
-                                  fontSize: 13,
-                                  cursor: "pointer"
-                                }}
-                                onMouseEnter={(e) => (e.currentTarget.style.background = "#1e1e35")}
-                                onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
-                              >
-                                <span style={{
-                                  fontSize: 9,
+                                  color: isGrok ? "#ffffff" : c,
+                                  padding: "9px 14px",
+                                  fontSize: 10,
                                   fontWeight: 700,
                                   textTransform: "uppercase",
                                   letterSpacing: "0.05em",
-                                  color: isGrok ? "#ffffff" : c,
-                                  background: isGrok ? "#000000" : `${c}28`,
-                                  padding: "2px 6px",
-                                  borderRadius: 4
-                                }}>
-                                  {source}
-                                </span>
+                                  cursor: "pointer"
+                                }}
+                                onMouseEnter={(e) => (e.currentTarget.style.opacity = "0.8")}
+                                onMouseLeave={(e) => (e.currentTarget.style.opacity = "1")}
+                              >
+                                {source}
                               </button>
                             )
                           })}
