@@ -114,9 +114,13 @@ function extractMessages(): Message[] {
 }
 
 function getTitleFromMessages(messages: Message[]): string {
+  // Use Claude's auto-generated page title when available
+  const pageTitle = document.title.replace(/\s*[-|–]\s*Claude\s*$/i, "").trim()
+  if (pageTitle && !/^claude$/i.test(pageTitle)) return pageTitle
+
   const firstUser = messages.find((m) => m.role === "user")
   if (!firstUser) return document.title || "Claude conversation"
-  const text = firstUser.content.slice(0, 60)
+  const text = firstUser.content.slice(0, 80)
   return text.length < firstUser.content.length ? `${text}...` : text
 }
 
@@ -131,14 +135,14 @@ async function captureAndSave(): Promise<void> {
   // Strip injected MemoryMesh context from the first user message so we
   // never save the context header as if it were real conversation content.
   if (messages[0]?.role === "user" && messages[0].content.startsWith("[MindRelay")) {
-    const separatorIndex = messages[0].content.indexOf("---\n\n")
-    if (separatorIndex !== -1) {
-      const cleaned = messages[0].content.slice(separatorIndex + 5).trim()
-      messages = [{ role: "user", content: cleaned }, ...messages.slice(1)]
-    } else {
-      // Entire first message is just the header — skip saving this turn
-      messages = messages.slice(1)
+    let cleaned: string | null = null
+    for (const marker of ["[End of retrieved memory.]", "[End of context.]"]) {
+      const idx = messages[0].content.indexOf(marker)
+      if (idx !== -1) { cleaned = messages[0].content.slice(idx + marker.length).trim(); break }
     }
+    messages = cleaned
+      ? [{ role: "user", content: cleaned }, ...messages.slice(1)]
+      : messages.slice(1)
     if (messages.length < 2) return
   }
 

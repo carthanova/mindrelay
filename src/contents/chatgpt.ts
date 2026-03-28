@@ -68,9 +68,12 @@ function extractMessages(): Message[] {
 }
 
 function getTitleFromMessages(messages: Message[]): string {
+  const pageTitle = document.title.replace(/\s*[-|–]\s*ChatGPT\s*$/i, "").trim()
+  if (pageTitle && !/^chatgpt$/i.test(pageTitle)) return pageTitle
+
   const firstUser = messages.find((m) => m.role === "user")
   if (!firstUser) return "ChatGPT conversation"
-  const text = firstUser.content.slice(0, 60)
+  const text = firstUser.content.slice(0, 80)
   return text.length < firstUser.content.length ? `${text}...` : text
 }
 
@@ -79,8 +82,20 @@ function hashMessages(messages: Message[]): string {
 }
 
 async function captureAndSave(): Promise<void> {
-  const messages = extractMessages()
+  let messages = extractMessages()
   if (messages.length < 2) return
+
+  if (messages[0]?.role === "user" && messages[0].content.startsWith("[MindRelay")) {
+    let cleaned: string | null = null
+    for (const marker of ["[End of retrieved memory.]", "[End of context.]"]) {
+      const idx = messages[0].content.indexOf(marker)
+      if (idx !== -1) { cleaned = messages[0].content.slice(idx + marker.length).trim(); break }
+    }
+    messages = cleaned
+      ? [{ role: "user", content: cleaned }, ...messages.slice(1)]
+      : messages.slice(1)
+    if (messages.length < 2) return
+  }
 
   const hash = hashMessages(messages)
   if (hash === lastSavedHash) return

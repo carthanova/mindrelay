@@ -74,9 +74,12 @@ function extractMessages(): Message[] {
 }
 
 function getTitleFromMessages(messages: Message[]): string {
+  const pageTitle = document.title.replace(/\s*[-|–\/]\s*Grok\s*$/i, "").trim()
+  if (pageTitle && !/^grok$/i.test(pageTitle)) return pageTitle
+
   const firstUser = messages.find((m) => m.role === "user")
   if (!firstUser) return "Grok conversation"
-  const text = firstUser.content.slice(0, 60)
+  const text = firstUser.content.slice(0, 80)
   return text.length < firstUser.content.length ? `${text}...` : text
 }
 
