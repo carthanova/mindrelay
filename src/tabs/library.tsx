@@ -113,6 +113,7 @@ export default function LibraryPage() {
   const [selected, setSelected] = useState<Transcript | null>(null)
   const [injectStatus, setInjectStatus] = useState<string | null>(null)
   const [isDragOver, setIsDragOver] = useState(false)
+  const [showInjectMenu, setShowInjectMenu] = useState(false)
 
   useEffect(() => {
     getAllTranscripts().then((data) => {
@@ -120,6 +121,13 @@ export default function LibraryPage() {
       setLoading(false)
     })
   }, [])
+
+  useEffect(() => {
+    if (!showInjectMenu) return
+    const close = () => setShowInjectMenu(false)
+    document.addEventListener("click", close)
+    return () => document.removeEventListener("click", close)
+  }, [showInjectMenu])
 
   const storageInfo = useMemo(() => {
     if (transcripts.length === 0) return "0 KB"
@@ -144,25 +152,28 @@ export default function LibraryPage() {
     return matchSource && matchSearch
   })
 
-  async function handleInject(t: Transcript) {
+  const INJECT_TARGETS = [
+    { name: "Claude",   url: "https://claude.ai/*" },
+    { name: "ChatGPT",  url: "https://chatgpt.com/*" },
+    { name: "Gemini",   url: "https://gemini.google.com/*" },
+    { name: "Grok",     url: "https://grok.com/*" }
+  ] as const
+
+  async function handleInject(t: Transcript, targetName: string) {
+    setShowInjectMenu(false)
+    const target = INJECT_TARGETS.find((p) => p.name === targetName)
+    if (!target) return
     const context = buildCombinedContext([t])
-    const tabs = await chrome.tabs.query({
-      url: ["https://claude.ai/*", "https://chatgpt.com/*", "https://gemini.google.com/*", "https://grok.com/*"]
-    })
+    const tabs = await chrome.tabs.query({ url: [target.url] })
     const aiTab = tabs.find((tab) => tab.url != null)
     if (!aiTab?.id) {
-      showStatus("No Claude, ChatGPT, or Gemini tab found")
+      showStatus(`No ${target.name} tab open`)
       return
     }
     try {
       await chrome.tabs.sendMessage(aiTab.id, { type: "mindrelay:inject", context })
       await chrome.tabs.update(aiTab.id, { active: true })
-      const name = aiTab.url?.includes("claude.ai")
-        ? "Claude"
-        : aiTab.url?.includes("chatgpt.com")
-          ? "ChatGPT"
-          : "Gemini"
-      showStatus(`Injected into ${name}`)
+      showStatus(`Injected into ${target.name}`)
     } catch {
       showStatus("Injection failed — reload the AI tab")
     }
@@ -579,21 +590,67 @@ export default function LibraryPage() {
                   </div>
 
                   <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
-                    <button
-                      onClick={() => handleInject(selected)}
-                      style={{
-                        background: `${SOURCE_COLORS[selected.source] ?? "#888"}1a`,
-                        border: `1px solid ${SOURCE_COLORS[selected.source] ?? "#888"}44`,
-                        color: SOURCE_COLORS[selected.source] ?? "#888",
-                        borderRadius: 7,
-                        padding: "7px 16px",
-                        fontSize: 13,
-                        cursor: "pointer",
-                        fontWeight: 600
-                      }}
-                    >
-                      Inject into AI
-                    </button>
+                    {/* Inject dropdown */}
+                    <div style={{ position: "relative" }}>
+                      <button
+                        onClick={() => setShowInjectMenu((v) => !v)}
+                        style={{
+                          background: `${SOURCE_COLORS[selected.source] ?? "#888"}1a`,
+                          border: `1px solid ${SOURCE_COLORS[selected.source] ?? "#888"}44`,
+                          color: SOURCE_COLORS[selected.source] ?? "#888",
+                          borderRadius: 7,
+                          padding: "7px 16px",
+                          fontSize: 13,
+                          cursor: "pointer",
+                          fontWeight: 600,
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 6
+                        }}
+                      >
+                        Inject into AI
+                        <span style={{ fontSize: 10, opacity: 0.7 }}>▾</span>
+                      </button>
+                      {showInjectMenu && (
+                        <div
+                          style={{
+                            position: "absolute",
+                            top: "calc(100% + 6px)",
+                            left: 0,
+                            background: "#161625",
+                            border: "1px solid #252535",
+                            borderRadius: 8,
+                            overflow: "hidden",
+                            zIndex: 50,
+                            minWidth: 160,
+                            boxShadow: "0 8px 24px rgba(0,0,0,0.4)"
+                          }}
+                        >
+                          {INJECT_TARGETS.map(({ name }) => (
+                            <button
+                              key={name}
+                              onClick={() => handleInject(selected, name)}
+                              style={{
+                                display: "block",
+                                width: "100%",
+                                textAlign: "left",
+                                background: "transparent",
+                                border: "none",
+                                borderBottom: "1px solid #1e1e2e",
+                                color: "#ccc",
+                                padding: "10px 14px",
+                                fontSize: 13,
+                                cursor: "pointer"
+                              }}
+                              onMouseEnter={(e) => (e.currentTarget.style.background = "#1e1e35")}
+                              onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
+                            >
+                              {name}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
                     <button
                       onClick={() => handleDownloadMd(selected)}
                       style={{
