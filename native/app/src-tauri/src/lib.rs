@@ -164,6 +164,15 @@ fn register_windows_registry(
     Ok(())
 }
 
+// ─── First-run detection ─────────────────────────────────────────────────────
+
+/// Returns true when the user has never explicitly chosen a vault location.
+/// Used by the frontend to show the first-run setup modal.
+#[tauri::command]
+fn is_first_run() -> bool {
+    !mindrelay_core::vault_pointer_path().exists()
+}
+
 // ─── Tauri commands ──────────────────────────────────────────────────────────
 
 fn db() -> Result<Database, String> {
@@ -272,6 +281,7 @@ pub fn run() {
             set_vault_path,
             sync_to_vault,
             backup_vault,
+            is_first_run,
         ])
         .setup(|app| {
             setup_native_host(app);

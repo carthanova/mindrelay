@@ -123,10 +123,16 @@ export default function App() {
   const [vaultStatus, setVaultStatus] = useState<string | null>(null)
   const [backingUp, setBackingUp] = useState(false)
   const [syncing, setSyncing] = useState(false)
+  const [showFirstRun, setShowFirstRun] = useState(false)
+  const [firstRunDraft, setFirstRunDraft] = useState("")
   const vaultInputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
-    invoke<string>("get_vault_path").then(setVaultPath).catch(() => {})
+    invoke<string>("get_vault_path").then((p) => {
+      setVaultPath(p)
+      setFirstRunDraft(p)
+    }).catch(() => {})
+    invoke<boolean>("is_first_run").then((yes) => { if (yes) setShowFirstRun(true) }).catch(() => {})
   }, [])
 
   useEffect(() => {
@@ -161,6 +167,21 @@ export default function App() {
       setTimeout(() => setVaultStatus(null), 4000)
     } finally {
       setBackingUp(false)
+    }
+  }
+
+  async function handleFirstRunConfirm() {
+    const trimmed = firstRunDraft.trim()
+    if (!trimmed) return
+    try {
+      const confirmed = await invoke<string>("set_vault_path", { path: trimmed })
+      setVaultPath(confirmed)
+      setShowFirstRun(false)
+      setVaultStatus("Vault ready — your AI conversations will be saved here.")
+      setTimeout(() => setVaultStatus(null), 4000)
+    } catch (err) {
+      setVaultStatus(`Error: ${err}`)
+      setTimeout(() => setVaultStatus(null), 4000)
     }
   }
 
@@ -329,6 +350,36 @@ export default function App() {
       onDrop={handleDrop}
       style={{ minHeight: "100vh", background: "#0a0a14", color: "#e0e0e0", fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif", display: "flex", flexDirection: "column", position: "relative" }}
     >
+      {/* ── First-run setup modal ── */}
+      {showFirstRun && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.75)", zIndex: 200, display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <div style={{ background: "#12121f", border: "1px solid rgba(124,106,247,0.35)", borderRadius: 18, padding: "36px 40px", maxWidth: 460, width: "90%", boxShadow: "0 24px 64px rgba(0,0,0,0.6)" }}>
+            <div style={{ fontSize: 32, marginBottom: 14, textAlign: "center" }}>🧠</div>
+            <div style={{ fontSize: 20, fontWeight: 700, color: "#fff", marginBottom: 8, textAlign: "center", letterSpacing: "-0.02em" }}>Welcome to MindRelay</div>
+            <div style={{ fontSize: 13, color: "#888", lineHeight: 1.6, marginBottom: 24, textAlign: "center" }}>
+              Your AI conversations are saved locally to a vault folder. Context from past chats is automatically injected into new ones — across Claude, ChatGPT, Gemini, and Grok.
+            </div>
+            <div style={{ marginBottom: 20 }}>
+              <div style={{ fontSize: 12, color: "#a78bfa", fontWeight: 600, marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.05em" }}>Vault location</div>
+              <input
+                value={firstRunDraft}
+                onChange={(e) => setFirstRunDraft(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter") handleFirstRunConfirm() }}
+                style={{ width: "100%", background: "#1e1e2e", border: "1px solid rgba(124,106,247,0.3)", borderRadius: 8, padding: "10px 12px", color: "#e0e0e0", fontSize: 13, fontFamily: "monospace", outline: "none", boxSizing: "border-box" }}
+                spellCheck={false}
+              />
+              <div style={{ fontSize: 11, color: "#444", marginTop: 6 }}>You can change this later in the app settings.</div>
+            </div>
+            <button
+              onClick={handleFirstRunConfirm}
+              style={{ width: "100%", background: "linear-gradient(135deg, #7c6af7, #4285f4)", border: "none", borderRadius: 10, padding: "12px 0", color: "#fff", fontSize: 14, fontWeight: 600, cursor: "pointer", letterSpacing: "-0.01em" }}
+            >
+              Set up vault →
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* ── Drag overlay ── */}
       {isDragOver && (
         <div style={{ position: "fixed", inset: 0, background: "rgba(124,106,247,0.08)", border: "2px dashed rgba(124,106,247,0.4)", zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center", pointerEvents: "none" }}>

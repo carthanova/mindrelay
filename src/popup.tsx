@@ -6,6 +6,8 @@ import {
   clearBySource,
   deleteTranscript,
   getAllTranscripts,
+  getHostStatus,
+  type HostStatus,
   type Transcript
 } from "./lib/storage"
 
@@ -52,6 +54,7 @@ export default function IndexPopup() {
   const [showClearMenu, setShowClearMenu] = useState(false)
   const [hoveredId, setHoveredId] = useState<string | null>(null)
   const [statusMsg, setStatusMsg] = useState<string | null>(null)
+  const [hostStatus, setHostStatus] = useState<HostStatus | null>(null)
 
   useEffect(() => {
     if (!showClearMenu) return
@@ -64,7 +67,20 @@ export default function IndexPopup() {
     getAllTranscripts().then((data) => {
       setTranscripts(data)
       setLoading(false)
+      // If empty, the startup sync may still be in progress — retry a few times
+      // so conversations appear without the user needing to close/reopen the popup.
+      if (data.length === 0) {
+        const retries = [1500, 4000, 9000]
+        retries.forEach((delay) => {
+          setTimeout(() => {
+            getAllTranscripts().then((fresh) => {
+              if (fresh.length > 0) setTranscripts(fresh)
+            }).catch(() => {})
+          }, delay)
+        })
+      }
     })
+    getHostStatus().then(setHostStatus).catch(() => {})
   }, [])
 
   function showStatus(msg: string) {
@@ -281,6 +297,37 @@ export default function IndexPopup() {
           </div>
         )}
       </div>
+
+      {/* ── Limit banners (only shown when native app is not installed) ── */}
+      {!loading && hostStatus && !hostStatus.available && transcripts.length >= hostStatus.maxTranscripts && (
+        <div style={{ padding: "10px 14px", background: "rgba(204,85,85,0.08)", borderBottom: "1px solid rgba(204,85,85,0.2)" }}>
+          <div style={{ fontSize: 12, color: "#f87171", fontWeight: 600, marginBottom: 3 }}>
+            Limit reached — new conversations won't be saved
+          </div>
+          <div style={{ fontSize: 11, color: "#666", lineHeight: 1.5, marginBottom: 8 }}>
+            You've hit the {hostStatus.maxTranscripts}-conversation limit. Install the MindRelay desktop app for unlimited local storage and to unlock the full product.
+          </div>
+          <button
+            onClick={openApp}
+            style={{ fontSize: 11, fontWeight: 600, color: "#fff", background: "linear-gradient(135deg, #7c6af7, #4285f4)", border: "none", borderRadius: 6, padding: "5px 12px", cursor: "pointer" }}
+          >
+            Get the MindRelay app →
+          </button>
+        </div>
+      )}
+      {!loading && hostStatus && !hostStatus.available && transcripts.length >= hostStatus.warnThreshold && transcripts.length < hostStatus.maxTranscripts && (
+        <div style={{ padding: "8px 14px", background: "rgba(234,179,8,0.06)", borderBottom: "1px solid rgba(234,179,8,0.15)", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+          <span style={{ fontSize: 11, color: "#a8945a", lineHeight: 1.4 }}>
+            {transcripts.length}/{hostStatus.maxTranscripts} saved — approaching limit.
+          </span>
+          <button
+            onClick={openApp}
+            style={{ fontSize: 11, fontWeight: 600, color: "#7c6af7", background: "transparent", border: "1px solid rgba(124,106,247,0.3)", borderRadius: 6, padding: "4px 10px", cursor: "pointer", whiteSpace: "nowrap", flexShrink: 0 }}
+          >
+            Get the app →
+          </button>
+        </div>
+      )}
 
       {/* ── Memory List ── */}
       <div style={{ maxHeight: 400, overflowY: "auto" }}>

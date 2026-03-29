@@ -115,6 +115,32 @@ export async function dbEvictOldest(maxCount: number): Promise<void> {
   })
 }
 
+/** Delete all transcripts whose timestamp is older than cutoffMs. */
+export async function dbEvictByAge(cutoffMs: number): Promise<number> {
+  const all = await dbGetAll()
+  const toEvict = all.filter((t) => t.timestamp < cutoffMs)
+  if (toEvict.length === 0) return 0
+  const db = await openDB()
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE, "readwrite")
+    const store = tx.objectStore(STORE)
+    toEvict.forEach((t) => store.delete(t.id))
+    tx.oncomplete = () => resolve(toEvict.length)
+    tx.onerror = () => reject(tx.error)
+  })
+}
+
+/** Return the number of transcripts currently in the store. */
+export async function dbCount(): Promise<number> {
+  const db = await openDB()
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE, "readonly")
+    const req = tx.objectStore(STORE).count()
+    req.onsuccess = () => resolve(req.result)
+    req.onerror = () => reject(req.error)
+  })
+}
+
 /** Find a transcript by URL. Returns null if not found. */
 export async function dbFindByUrl(url: string): Promise<Transcript | null> {
   const db = await openDB()

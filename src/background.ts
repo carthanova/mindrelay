@@ -1,12 +1,24 @@
-import { dbClear, dbDelete, dbDeleteBySource, dbEvictOldest, dbFindByUrl, dbGetAll, dbPut } from "./lib/db"
+import { dbClear, dbCount, dbDelete, dbDeleteBySource, dbEvictByAge, dbEvictOldest, dbFindByUrl, dbGetAll, dbPut } from "./lib/db"
 import { log } from "./lib/log"
 import { sendToHost, sendToHostAck } from "./lib/native-messaging"
 import type { Transcript } from "./lib/storage"
 import { fetchAndCacheConfig } from "./lib/config"
 
-// Free tier cap. Pro tier (200) and Unlimited tier to be enforced once
-// monetization is implemented.
-const MAX_TRANSCRIPTS = 50
+// ─── Tier limits ─────────────────────────────────────────────────────────────
+// Without the native app the extension is a limited preview. Conversations
+// older than MAX_AGE_MS are evicted first (age-based, graceful). If the count
+// still reaches MAX_TRANSCRIPTS and the native host is not available, new
+// conversations are blocked — the user must install the desktop app to continue.
+// When the native host IS available the vault holds everything; the extension
+// cache can evict freely via the count cap.
+
+const MAX_TRANSCRIPTS = 200
+const WARN_THRESHOLD = 150
+const MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000  // 30 days
+
+// Tracks whether the native host responded successfully on the last attempt.
+// Updated on every DB_PUT so the popup can read it via HOST_PING.
+let hostAvailable = false
 
 // ─── Extension badge ──────────────────────────────────────────────────────────
 
@@ -96,6 +108,7 @@ async function syncWithHost(): Promise<void> {
     }
     return
   }
+  hostAvailable = true
 
   const hostTranscripts = (ack.data as Transcript[] | undefined) ?? []
   const hostIds = new Set(hostTranscripts.map((t) => t.id))
@@ -215,17 +228,44 @@ async function handleMessage(msg: {
     case "DB_GET_ALL":
       return dbGetAll()
     case "DB_PUT": {
-      await dbPut(msg.data as Transcript)
-      await dbEvictOldest(MAX_TRANSCRIPTS)
-      const ack = await sendToHostAck({ type: "PUT", data: msg.data })
+      const incoming = msg.data as Transcript
+
+      // Step 1: Age eviction — always, regardless of host presence.
+      // Removes conversations not touched in 30 days before we count anything.
+      await dbEvictByAge(Date.now() - MAX_AGE_MS)
+
+      // Step 2: Hard stop for NEW conversations when host is unavailable and
+      // the cap is full. Updates to existing conversations always go through.
+      const isExisting = incoming.url
+        ? !!(await dbFindByUrl(incoming.url))
+        : false
+
+      if (!isExisting && !hostAvailable) {
+        const countAfterEviction = await dbCount()
+        if (countAfterEviction >= MAX_TRANSCRIPTS) {
+          return { ok: false, atLimit: true, hostAvailable: false, count: countAfterEviction }
+        }
+      }
+
+      // Step 3: Save.
+      await dbPut(incoming)
+
+      // Step 4: Sync to native host.
+      const ack = await sendToHostAck({ type: "PUT", data: incoming })
+      hostAvailable = ack.ok
       if (!ack.ok && ack.error !== "host not available") {
         log("[MindRelay] host PUT failed:", ack.error)
       }
+
+      // Step 5: Count safety cap — only when host is available (vault has everything).
+      if (ack.ok) {
+        await dbEvictOldest(MAX_TRANSCRIPTS)
+      }
+
+      const count = await dbCount()
       updateBadge().catch(console.error)
       maybeBackup().catch(console.error)
-      // ok: IndexedDB saved. hostSaved: native host also confirmed.
-      // Callers treat ok:true as "saved" even when the host is not installed.
-      return { ok: true, hostSaved: ack.ok, id: ack.id }
+      return { ok: true, hostSaved: ack.ok, id: ack.id, count, hostAvailable: ack.ok }
     }
     case "DB_DELETE":
       await dbDelete(msg.id as string)
@@ -244,10 +284,27 @@ async function handleMessage(msg: {
       return
     case "DB_FIND_BY_URL":
       return dbFindByUrl(msg.url as string)
+    case "HOST_SEARCH": {
+      const ack = await sendToHostAck({
+        type: "RELEVANCE_SEARCH",
+        query: msg.query,
+        sessionId: msg.sessionId,
+        topK: msg.topK ?? 5
+      }, 5_000)
+      if (!ack.ok) return { ok: false, results: [] }
+      // RELEVANCE_SEARCH response shape: { ok, sessionId, results, dedupFiltered }
+      const raw = ack as unknown as { results?: unknown[] }
+      return { ok: true, results: raw.results ?? [] }
+    }
+    case "HOST_SESSION_END":
+      sendToHost({ type: "SESSION_END", sessionId: msg.sessionId })
+      return
     case "OPEN_APP": {
       const ack = await sendToHostAck({ type: "OPEN_APP" })
       return { ok: ack.ok, error: ack.error }
     }
+    case "HOST_PING":
+      return { available: hostAvailable, count: await dbCount(), warnThreshold: WARN_THRESHOLD, maxTranscripts: MAX_TRANSCRIPTS }
     default:
       return null
   }

@@ -1,5 +1,5 @@
 import type { PlasmoCSConfig } from "plasmo"
-import { buildMarkdown, getAllTranscripts, saveTranscript, type Message } from "../lib/storage"
+import { buildMarkdown, getAllTranscripts, saveTranscript, searchTranscripts, endSession, type Message } from "../lib/storage"
 import type { Transcript } from "../lib/storage"
 import { showSaveToast } from "../lib/toast"
 import { log, warn } from "../lib/log"
@@ -17,6 +17,7 @@ export const config: PlasmoCSConfig = {
 let cachedTranscripts: Transcript[] = []
 let injectedIds = new Set<string>()
 let isInjecting = false
+let sessionId = crypto.randomUUID()
 let lastSavedHash = ""
 let saveTimer: ReturnType<typeof setTimeout> | null = null
 let inputSelectors: string[] = []
@@ -117,23 +118,37 @@ async function refreshTranscripts(): Promise<void> {
   log("[MindRelay] ChatGPT: loaded", cachedTranscripts.length, "transcripts for injection")
 }
 
-function tryInjectContext(inputEl: HTMLElement): boolean {
-  if (cachedTranscripts.length === 0) return false
-
+async function tryInjectContextAsync(inputEl: HTMLElement, target: EventTarget): Promise<void> {
   const userQuery = getEditableText(inputEl)
-  if (!userQuery || userQuery.length < 3) return false
-
-  const ranked = rankTranscripts(userQuery, cachedTranscripts, 3)
-  const newOnes = ranked.filter(t => !injectedIds.has(t.id))
-  if (newOnes.length === 0) return false
-
-  const context = buildCombinedContext(newOnes)
-  const success = setEditableText(inputEl, `${userQuery}\n\n---\n\n${context}`)
-  if (success) {
-    newOnes.forEach(t => injectedIds.add(t.id))
-    log("[MindRelay] ChatGPT: injected", newOnes.length, "transcripts via DOM")
+  if (!userQuery || userQuery.length < 3) {
+    redispatchEnter(target)
+    setTimeout(() => { isInjecting = false }, 200)
+    return
   }
-  return success
+
+  let toInject: Transcript[] = []
+
+  const hostResults = await searchTranscripts(userQuery, sessionId, 5)
+  const freshHost = hostResults.filter(t => !injectedIds.has(t.id))
+  if (freshHost.length > 0) {
+    toInject = freshHost.slice(0, 3)
+    log("[MindRelay] ChatGPT: host FTS5 →", toInject.length, "results")
+  }
+
+  if (toInject.length === 0 && cachedTranscripts.length > 0) {
+    const localRanked = rankTranscripts(userQuery, cachedTranscripts, 3)
+    toInject = localRanked.filter(t => !injectedIds.has(t.id))
+    if (toInject.length > 0) log("[MindRelay] ChatGPT: local TF →", toInject.length, "results")
+  }
+
+  if (toInject.length > 0) {
+    const context = buildCombinedContext(toInject)
+    const success = setEditableText(inputEl, `${userQuery}\n\n---\n\n${context}`)
+    if (success) toInject.forEach(t => injectedIds.add(t.id))
+  }
+
+  redispatchEnter(target)
+  setTimeout(() => { isInjecting = false }, 200)
 }
 
 function setupInjection(): void {
@@ -145,12 +160,15 @@ function setupInjection(): void {
     if (!inputEl) return
     if (!inputEl.contains(e.target as Node) && inputEl !== e.target) return
 
-    if (!tryInjectContext(inputEl)) return
+    const userQuery = getEditableText(inputEl)
+    if (!userQuery || userQuery.length < 3) return
 
     e.preventDefault()
     isInjecting = true
-    redispatchEnter(e.target as EventTarget)
-    setTimeout(() => { isInjecting = false }, 200)
+    tryInjectContextAsync(inputEl, e.target as EventTarget).catch(() => {
+      redispatchEnter(e.target as EventTarget)
+      isInjecting = false
+    })
   }, true)
 }
 
@@ -160,6 +178,8 @@ let lastUrl = location.href
 setInterval(() => {
   if (location.href === lastUrl) return
   lastUrl = location.href
+  endSession(sessionId)
+  sessionId = crypto.randomUUID()
   injectedIds = new Set()
   refreshTranscripts()
 }, 300)
@@ -167,6 +187,8 @@ setInterval(() => {
 document.addEventListener("click", (e) => {
   const target = (e.target as Element).closest('[data-testid="create-new-chat-button"]')
   if (target) {
+    endSession(sessionId)
+    sessionId = crypto.randomUUID()
     injectedIds = new Set()
     setTimeout(refreshTranscripts, 150)
   }

@@ -62,6 +62,55 @@ export async function clearAllTranscripts(): Promise<void> {
   await send({ type: "DB_CLEAR" })
 }
 
+// ─── Native host search bridge ───────────────────────────────────────────────
+
+/**
+ * Ask the native host to run an FTS5 BM25 relevance search against the vault.
+ * Returns the matched transcripts (best first) or [] when the host is not
+ * installed or returns no results.  Never throws.
+ */
+export interface HostStatus {
+  available: boolean
+  count: number
+  warnThreshold: number
+  maxTranscripts: number
+}
+
+export async function getHostStatus(): Promise<HostStatus> {
+  try {
+    const result = await send<HostStatus>({ type: "HOST_PING" })
+    return result ?? { available: false, count: 0, warnThreshold: 150, maxTranscripts: 200 }
+  } catch {
+    return { available: false, count: 0, warnThreshold: 150, maxTranscripts: 200 }
+  }
+}
+
+export async function searchTranscripts(
+  query: string,
+  sessionId: string,
+  topK = 5
+): Promise<Transcript[]> {
+  try {
+    const resp = await send<{ ok: boolean; results?: Transcript[] }>({
+      type: "HOST_SEARCH",
+      query,
+      sessionId,
+      topK
+    })
+    return resp?.results ?? []
+  } catch {
+    return []
+  }
+}
+
+/**
+ * Notify the native host that a conversation session has ended so it can
+ * clear the deduplication state for that sessionId.  Fire-and-forget.
+ */
+export function endSession(sessionId: string): void {
+  chrome.runtime.sendMessage({ type: "HOST_SESSION_END", sessionId }).catch(() => {})
+}
+
 export async function importTranscripts(incoming: Transcript[]): Promise<number> {
   const existing = await getAllTranscripts()
   const existingIds = new Set(existing.map((t) => t.id))
