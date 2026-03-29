@@ -195,6 +195,67 @@ fn put_transcript(transcript: Transcript) -> Result<(), String> {
     db()?.put(&transcript).map_err(|e| e.to_string())
 }
 
+// ─── Vault commands ───────────────────────────────────────────────────────────
+
+/// Return the currently active vault path as a string.
+#[tauri::command]
+fn get_vault_path() -> String {
+    mindrelay_core::default_vault_path()
+        .to_string_lossy()
+        .into_owned()
+}
+
+/// Persist a new vault path and create its directory structure.
+/// Returns the resolved path on success.
+#[tauri::command]
+fn set_vault_path(path: String) -> Result<String, String> {
+    let p = std::path::PathBuf::from(&path);
+    if !p.is_absolute() {
+        return Err("vault path must be absolute".into());
+    }
+    mindrelay_core::write_vault_location(&p).map_err(|e| e.to_string())?;
+    // Initialise directory structure at the new location
+    mindrelay_core::Vault::open(p).map_err(|e| e.to_string())?;
+    Ok(path)
+}
+
+// ─── Vault sync command ───────────────────────────────────────────────────────
+
+/// Copy every transcript that is in SQLite but missing from vault/records/.
+/// Safe to call repeatedly — skips files that already exist.
+/// Returns the number of newly written vault files.
+#[tauri::command]
+fn sync_to_vault() -> Result<usize, String> {
+    let transcripts = db()?.get_all().map_err(|e| e.to_string())?;
+    let vault = mindrelay_core::Vault::open(mindrelay_core::default_vault_path())
+        .map_err(|e| e.to_string())?;
+    vault.sync_missing(&transcripts).map_err(|e| e.to_string())
+}
+
+// ─── Backup command ───────────────────────────────────────────────────────────
+
+/// Create a timestamped copy of the entire vault directory tree adjacent to
+/// the vault root.  Returns the absolute path of the backup on success.
+#[tauri::command]
+fn backup_vault() -> Result<String, String> {
+    let vault_path = mindrelay_core::default_vault_path();
+    let ts = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let folder_name = vault_path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("MindRelayVault");
+    let dest = vault_path
+        .parent()
+        .unwrap_or(&vault_path)
+        .join(format!("{folder_name}_backup_{ts}"));
+    let vault = mindrelay_core::Vault::open(vault_path).map_err(|e| e.to_string())?;
+    vault.backup(&dest).map_err(|e| e.to_string())?;
+    Ok(dest.to_string_lossy().into_owned())
+}
+
 // ─── App entry point ─────────────────────────────────────────────────────────
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -207,9 +268,18 @@ pub fn run() {
             delete_by_source,
             clear_all,
             put_transcript,
+            get_vault_path,
+            set_vault_path,
+            sync_to_vault,
+            backup_vault,
         ])
         .setup(|app| {
             setup_native_host(app);
+            // Silently backfill any transcripts that are in SQLite but missing
+            // from vault/records/ — covers data written before dual-write existed.
+            if let Err(e) = sync_to_vault() {
+                eprintln!("[MindRelay] vault backfill warning: {e}");
+            }
             #[cfg(debug_assertions)]
             app.get_webview_window("main").unwrap().open_devtools();
             Ok(())

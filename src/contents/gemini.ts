@@ -86,13 +86,33 @@ function extractMessages(): Message[] {
   return messages
 }
 
-function getTitleFromMessages(messages: Message[]): string {
-  const pageTitle = document.title
-    .replace(/\s*[-|–]\s*Gemini\s*$/i, "")
-    .replace(/\s*[-|–]\s*Google\s*Gemini\s*$/i, "")
-    .replace(/\s*[-|–]\s*Google DeepMind\s*$/i, "")
+function getTitleFromPage(): string {
+  // Strategy 1: document.title — Gemini sets it to "Title - Gemini" when available
+  const stripped = document.title
+    .replace(/\s*[|\-–—]\s*Gemini\s*$/i, "")
+    .replace(/\s*[|\-–—]\s*Google\s*Gemini\s*$/i, "")
+    .replace(/\s*[|\-–—]\s*Google\s*DeepMind\s*$/i, "")
+    .replace(/^Gemini\s*[|\-–—]\s*/i, "")
     .trim()
-  if (pageTitle && !/^(gemini|google gemini|google deepmind)$/i.test(pageTitle)) return pageTitle
+  if (stripped && !/^(gemini|google gemini|google deepmind)$/i.test(stripped)) return stripped
+
+  // Strategy 2: Gemini sidebar — each conversation is an <a href="/app/<id>">.
+  // The one matching the current path is the title shown in the UI.
+  try {
+    const path = location.pathname
+    if (path.startsWith("/app/") && path.length > 5) {
+      const anchor = document.querySelector(`a[href="${path}"]`) as HTMLElement | null
+      const text = anchor?.textContent?.trim()
+      if (text && text.length > 2 && !/^(gemini|google|new chat|new conversation)$/i.test(text)) return text
+    }
+  } catch { /* ignore */ }
+
+  return ""
+}
+
+function getTitleFromMessages(messages: Message[]): string {
+  const pageTitle = getTitleFromPage()
+  if (pageTitle) return pageTitle
 
   const firstUser = messages.find((m) => m.role === "user")
   if (!firstUser) return "Gemini conversation"
@@ -130,9 +150,9 @@ async function captureAndSave(): Promise<void> {
     const timestamp = Date.now()
     const markdown = buildMarkdown("Gemini", title, messages, timestamp)
 
-    await saveTranscript({ source: "gemini", title, messages, markdown, timestamp, url: window.location.href })
-    showSaveToast()
-    log("[MindRelay] Gemini saved:", title)
+    const saved = await saveTranscript({ source: "gemini", title, messages, markdown, timestamp, url: window.location.href })
+    if (saved) showSaveToast()
+    log("[MindRelay] Gemini saved:", title, saved ? "" : "(storage error)")
   } catch (err) {
     console.error("[MindRelay] Gemini captureAndSave error:", err)
   }
@@ -157,7 +177,7 @@ function tryInjectContext(inputEl: HTMLElement): boolean {
   if (newOnes.length === 0) return false
 
   const context = buildCombinedContext(newOnes)
-  const success = setEditableText(inputEl, `${context}\n\n---\n\n${userQuery}`)
+  const success = setEditableText(inputEl, `${userQuery}\n\n---\n\n${context}`)
   if (success) {
     newOnes.forEach(t => injectedIds.add(t.id))
     log("[MindRelay] Gemini: injected", newOnes.length, "transcripts via DOM")
@@ -201,7 +221,7 @@ chrome.runtime.onMessage.addListener((msg, sender) => {
     const inputEl = findElement(inputSelectors)
     if (!inputEl) { warn("[MindRelay] Gemini: popup inject — input not found"); return }
     const current = getEditableText(inputEl)
-    setEditableText(inputEl, `${msg.context}\n\n---\n\n${current}`)
+    setEditableText(inputEl, `${current}\n\n---\n\n${msg.context}`)
     log("[MindRelay] Gemini: injected from popup")
   }
 })
@@ -219,16 +239,17 @@ const observer = new MutationObserver(() => {
 })
 observer.observe(document.body, { childList: true, subtree: true })
 
-// Gemini generates the conversation title asynchronously after the first response.
-// The title update lands in <head><title>, not <body>, so the body observer misses it.
-// Watch <title> directly so we re-save with the real title once Gemini sets it.
-const titleEl = document.querySelector("title")
-if (titleEl) {
-  new MutationObserver(() => {
-    if (saveTimer) clearTimeout(saveTimer)
-    saveTimer = setTimeout(captureAndSave, 500)
-  }).observe(titleEl, { childList: true, characterData: true, subtree: true })
-}
+// Gemini sets the conversation title asynchronously. It may appear in document.title
+// OR only in the sidebar <a href="/app/..."> element (which lives in document.body).
+// The body MutationObserver already covers sidebar changes via the 3s debounce.
+// This head observer catches document.title updates as a fast path (500ms vs 3s).
+let lastSeenTitle = document.title
+new MutationObserver(() => {
+  if (document.title === lastSeenTitle) return
+  lastSeenTitle = document.title
+  if (saveTimer) clearTimeout(saveTimer)
+  saveTimer = setTimeout(captureAndSave, 500)
+}).observe(document.head, { childList: true, subtree: true, characterData: true })
 
 // ─── Init ─────────────────────────────────────────────────────────────────────
 

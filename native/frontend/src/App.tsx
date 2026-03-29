@@ -1,5 +1,6 @@
 import { open } from "@tauri-apps/plugin-shell"
-import { useEffect, useMemo, useState } from "react"
+import { invoke } from "@tauri-apps/api/core"
+import { useEffect, useMemo, useRef, useState } from "react"
 import {
   buildMarkdown,
   clearAllTranscripts,
@@ -116,6 +117,67 @@ export default function App() {
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
   const [confirmClearSource, setConfirmClearSource] = useState<string | null>(null)
   const [confirmClearAll, setConfirmClearAll] = useState(false)
+  const [vaultPath, setVaultPath] = useState("")
+  const [editingVault, setEditingVault] = useState(false)
+  const [vaultDraft, setVaultDraft] = useState("")
+  const [vaultStatus, setVaultStatus] = useState<string | null>(null)
+  const [backingUp, setBackingUp] = useState(false)
+  const [syncing, setSyncing] = useState(false)
+  const vaultInputRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    invoke<string>("get_vault_path").then(setVaultPath).catch(() => {})
+  }, [])
+
+  useEffect(() => {
+    if (editingVault) vaultInputRef.current?.focus()
+  }, [editingVault])
+
+  async function handleSyncToVault() {
+    if (syncing) return
+    setSyncing(true)
+    try {
+      const count = await invoke<number>("sync_to_vault")
+      setVaultStatus(count > 0 ? `Synced ${count} new ${count === 1 ? "conversation" : "conversations"} to vault` : "Vault already up to date")
+      setTimeout(() => setVaultStatus(null), 3000)
+    } catch (err) {
+      setVaultStatus(`Sync failed: ${err}`)
+      setTimeout(() => setVaultStatus(null), 4000)
+    } finally {
+      setSyncing(false)
+    }
+  }
+
+  async function handleBackupVault() {
+    if (backingUp) return
+    setBackingUp(true)
+    try {
+      const dest = await invoke<string>("backup_vault")
+      const name = dest.split("/").pop() ?? dest
+      setVaultStatus(`Backup saved: ${name}`)
+      setTimeout(() => setVaultStatus(null), 4000)
+    } catch (err) {
+      setVaultStatus(`Backup failed: ${err}`)
+      setTimeout(() => setVaultStatus(null), 4000)
+    } finally {
+      setBackingUp(false)
+    }
+  }
+
+  async function handleSaveVaultPath() {
+    const trimmed = vaultDraft.trim()
+    if (!trimmed || trimmed === vaultPath) { setEditingVault(false); return }
+    try {
+      const confirmed = await invoke<string>("set_vault_path", { path: trimmed })
+      setVaultPath(confirmed)
+      setEditingVault(false)
+      setVaultStatus("Vault location updated")
+      setTimeout(() => setVaultStatus(null), 2500)
+    } catch (err) {
+      setVaultStatus(`Error: ${err}`)
+      setTimeout(() => setVaultStatus(null), 4000)
+    }
+  }
 
   useEffect(() => {
     getAllTranscripts().then((data) => { setTranscripts(data); setLoading(false) })
@@ -174,11 +236,15 @@ export default function App() {
   }
 
   async function handleDelete(id: string) {
-    if (confirmDeleteId !== id) { setConfirmDeleteId(id); return }
     setConfirmDeleteId(null)
-    await deleteTranscript(id)
-    setTranscripts((prev) => prev.filter((t) => t.id !== id))
-    if (selected?.id === id) setSelected(null)
+    try {
+      await deleteTranscript(id)
+      setTranscripts((prev) => prev.filter((t) => t.id !== id))
+      if (selected?.id === id) setSelected(null)
+    } catch (err) {
+      showStatus("Delete failed — try reloading")
+      console.error("[MindRelay] delete error:", err)
+    }
   }
 
   async function handleClearSource(source: string) {
@@ -199,16 +265,6 @@ export default function App() {
     setTranscripts([])
     setSelected(null)
     setSourceFilter("all")
-  }
-
-  function handleExport() {
-    const blob = new Blob([JSON.stringify(transcripts, null, 2)], { type: "application/json" })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement("a")
-    a.href = url
-    a.download = `mindrelay-backup-${new Date().toISOString().split("T")[0]}.json`
-    a.click()
-    URL.revokeObjectURL(url)
   }
 
   function handleDownloadMd(t: Transcript) {
@@ -328,21 +384,11 @@ export default function App() {
               {injectStatus}
             </span>
           )}
-          <label style={{ background: "rgba(124,106,247,0.1)", border: "1px solid rgba(124,106,247,0.25)", color: "#7c6af7", borderRadius: 7, padding: "6px 14px", fontSize: 12, cursor: "pointer", display: "inline-block", position: "relative", overflow: "hidden" }}>
-            Import
-            <input
-              type="file"
-              multiple
-              style={{ position: "absolute", inset: 0, opacity: 0, cursor: "pointer", fontSize: 0 }}
-              onChange={(e) => {
-                const files = Array.from(e.target.files ?? []).filter(f => !f.name.startsWith("."))
-                if (files.length > 0) processFiles(files)
-                e.target.value = ""
-              }}
-            />
-          </label>
-          <button onClick={handleExport} style={{ background: "rgba(124,106,247,0.1)", border: "1px solid rgba(124,106,247,0.25)", color: "#7c6af7", borderRadius: 7, padding: "6px 14px", fontSize: 12, cursor: "pointer" }}>
-            Export
+          <button
+            onClick={() => { if (vaultPath) open(vaultPath) }}
+            style={{ background: "rgba(124,106,247,0.1)", border: "1px solid rgba(124,106,247,0.25)", color: "#7c6af7", borderRadius: 7, padding: "6px 14px", fontSize: 12, cursor: "pointer" }}
+          >
+            Open Vault
           </button>
           <div style={{ position: "relative" }}>
             <button
@@ -402,10 +448,71 @@ export default function App() {
             })}
           </div>
 
-          {/* Storage indicator */}
-          <div style={{ padding: "9px 16px", borderTop: "1px solid #1e1e2e", display: "flex", justifyContent: "space-between", alignItems: "center", flexShrink: 0 }}>
-            <span style={{ fontSize: 11, color: "#333" }}>{transcripts.length} {transcripts.length === 1 ? "memory" : "memories"}</span>
-            <span style={{ fontSize: 11, color: "#333" }}>{storageInfo}</span>
+          {/* Sidebar footer: storage indicator + vault path */}
+          <div style={{ borderTop: "1px solid #1e1e2e", flexShrink: 0 }}>
+            {/* Storage row */}
+            <div style={{ padding: "8px 16px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <span style={{ fontSize: 11, color: "#333" }}>{transcripts.length} {transcripts.length === 1 ? "memory" : "memories"}</span>
+              <span style={{ fontSize: 11, color: "#333" }}>{storageInfo}</span>
+            </div>
+
+            {/* Vault path row */}
+            <div style={{ padding: "0 16px 10px" }}>
+              {vaultStatus && (
+                <div style={{ fontSize: 11, color: "#a78bfa", marginBottom: 5, padding: "3px 8px", background: "rgba(124,106,247,0.08)", border: "1px solid rgba(124,106,247,0.15)", borderRadius: 5 }}>
+                  {vaultStatus}
+                </div>
+              )}
+              {editingVault ? (
+                <div style={{ display: "flex", gap: 5 }}>
+                  <input
+                    ref={vaultInputRef}
+                    value={vaultDraft}
+                    onChange={(e) => setVaultDraft(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") handleSaveVaultPath()
+                      if (e.key === "Escape") setEditingVault(false)
+                    }}
+                    placeholder="/path/to/vault"
+                    style={{ flex: 1, background: "#161625", border: "1px solid #7c6af7", borderRadius: 5, color: "#ddd", fontSize: 11, padding: "4px 7px", outline: "none" }}
+                  />
+                  <button onClick={handleSaveVaultPath} style={{ background: "rgba(124,106,247,0.15)", border: "1px solid rgba(124,106,247,0.4)", color: "#a78bfa", borderRadius: 5, padding: "4px 8px", fontSize: 11, cursor: "pointer" }}>Save</button>
+                  <button onClick={() => setEditingVault(false)} style={{ background: "transparent", border: "1px solid #252535", color: "#555", borderRadius: 5, padding: "4px 8px", fontSize: 11, cursor: "pointer" }}>✕</button>
+                </div>
+              ) : (
+                <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
+                  <div
+                    onClick={() => { setVaultDraft(vaultPath); setEditingVault(true) }}
+                    title="Click to change vault folder"
+                    style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer", padding: "3px 6px", borderRadius: 5, border: "1px solid transparent", flex: 1, minWidth: 0 }}
+                    onMouseEnter={(e) => (e.currentTarget.style.borderColor = "#252535")}
+                    onMouseLeave={(e) => (e.currentTarget.style.borderColor = "transparent")}
+                  >
+                    <span style={{ fontSize: 11, color: "#3a3a3a" }}>📁</span>
+                    <span style={{ fontSize: 10, color: "#333", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>
+                      {vaultPath || "…"}
+                    </span>
+                    <span style={{ fontSize: 9, color: "#2a2a2a", flexShrink: 0 }}>edit</span>
+                  </div>
+                  <button
+                    onClick={handleSyncToVault}
+                    disabled={syncing}
+                    title="Copy all conversations to vault/records/"
+                    style={{ background: "transparent", border: "1px solid #1e1e2e", color: syncing ? "#2a2a2a" : "#333", borderRadius: 5, padding: "3px 7px", fontSize: 10, cursor: syncing ? "default" : "pointer", flexShrink: 0 }}
+                  >
+                    {syncing ? "…" : "Sync"}
+                  </button>
+                  <button
+                    onClick={handleBackupVault}
+                    disabled={backingUp}
+                    title="Create a timestamped backup of the vault"
+                    style={{ background: "transparent", border: "1px solid #1e1e2e", color: backingUp ? "#2a2a2a" : "#333", borderRadius: 5, padding: "3px 7px", fontSize: 10, cursor: backingUp ? "default" : "pointer", flexShrink: 0 }}
+                  >
+                    {backingUp ? "…" : "Backup"}
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
         </div>
 
@@ -466,16 +573,29 @@ export default function App() {
                         </div>
                       )}
                     </div>
-                    <button onClick={() => handleDownloadMd(selected)} style={{ background: "transparent", border: "1px solid #252535", color: "#666", borderRadius: 7, padding: "7px 14px", fontSize: 13, cursor: "pointer" }}>
-                      Download .md
-                    </button>
-                    <button
-                      onClick={() => handleDelete(selected.id)}
-                      onBlur={() => setConfirmDeleteId(null)}
-                      style={{ background: confirmDeleteId === selected.id ? "rgba(204,85,85,0.15)" : "transparent", border: `1px solid ${confirmDeleteId === selected.id ? "rgba(204,85,85,0.6)" : "rgba(204,85,85,0.2)"}`, color: "#cc5555", borderRadius: 7, padding: "7px 14px", fontSize: 13, cursor: "pointer", transition: "all 0.15s" }}
-                    >
-                      {confirmDeleteId === selected.id ? "Confirm delete?" : "Delete"}
-                    </button>
+{confirmDeleteId === selected.id ? (
+                      <>
+                        <button
+                          onClick={() => handleDelete(selected.id)}
+                          style={{ background: "rgba(204,85,85,0.18)", border: "1px solid rgba(204,85,85,0.7)", color: "#ff6b6b", borderRadius: 7, padding: "7px 14px", fontSize: 13, cursor: "pointer", fontWeight: 700 }}
+                        >
+                          Confirm delete
+                        </button>
+                        <button
+                          onClick={() => setConfirmDeleteId(null)}
+                          style={{ background: "transparent", border: "1px solid #252535", color: "#666", borderRadius: 7, padding: "7px 14px", fontSize: 13, cursor: "pointer" }}
+                        >
+                          Cancel
+                        </button>
+                      </>
+                    ) : (
+                      <button
+                        onClick={() => setConfirmDeleteId(selected.id)}
+                        style={{ background: "transparent", border: "1px solid rgba(204,85,85,0.2)", color: "#cc5555", borderRadius: 7, padding: "7px 14px", fontSize: 13, cursor: "pointer" }}
+                      >
+                        Delete
+                      </button>
+                    )}
                   </div>
                 </div>
               </div>

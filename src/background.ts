@@ -1,6 +1,6 @@
 import { dbClear, dbDelete, dbDeleteBySource, dbEvictOldest, dbFindByUrl, dbGetAll, dbPut } from "./lib/db"
 import { log } from "./lib/log"
-import { sendToHost } from "./lib/native-messaging"
+import { sendToHost, sendToHostAck } from "./lib/native-messaging"
 import type { Transcript } from "./lib/storage"
 import { fetchAndCacheConfig } from "./lib/config"
 
@@ -78,6 +78,56 @@ async function runDbRenameMigration(): Promise<void> {
 }
 
 runDbRenameMigration().catch(console.error)
+
+// ─── Startup sync: bidirectional IndexedDB ↔ native vault ────────────────────
+// On every service-worker startup:
+//   Pull: host → IDB  (vault records the extension doesn't have yet)
+//   Push: IDB → host  (extension records the vault doesn't have yet)
+//
+// One GET_ALL call covers both directions. After the initial full push the
+// ongoing per-save DB_PUT keeps the two sides in sync, so subsequent startups
+// typically push 0 records.
+
+async function syncWithHost(): Promise<void> {
+  const ack = await sendToHostAck({ type: "GET_ALL" }, 30_000)
+  if (!ack.ok) {
+    if (ack.error !== "host not available") {
+      log("[MindRelay] startup sync failed:", ack.error)
+    }
+    return
+  }
+
+  const hostTranscripts = (ack.data as Transcript[] | undefined) ?? []
+  const hostIds = new Set(hostTranscripts.map((t) => t.id))
+
+  const localTranscripts = await dbGetAll()
+  const localIds = new Set(localTranscripts.map((t) => t.id))
+
+  // Pull: vault → IDB
+  const toImport = hostTranscripts.filter((t) => !localIds.has(t.id))
+  for (const t of toImport) await dbPut(t)
+  if (toImport.length > 0) {
+    log(`[MindRelay] sync: pulled ${toImport.length} from vault into IDB`)
+    updateBadge().catch(console.error)
+  }
+
+  // Push: IDB → vault (covers data captured before the native host was installed)
+  const toPush = localTranscripts.filter((t) => !hostIds.has(t.id))
+  let pushed = 0
+  for (const t of toPush) {
+    const result = await sendToHostAck({ type: "PUT", data: t })
+    if (result.ok) {
+      pushed++
+    } else if (result.error !== "host not available") {
+      log("[MindRelay] sync: push failed for", t.id, result.error)
+    }
+  }
+  if (pushed > 0) {
+    log(`[MindRelay] sync: pushed ${pushed} conversations to vault`)
+  }
+}
+
+syncWithHost().catch(console.error)
 
 // ─── Auto-backup ─────────────────────────────────────────────────────────────
 
@@ -164,13 +214,19 @@ async function handleMessage(msg: {
   switch (msg.type) {
     case "DB_GET_ALL":
       return dbGetAll()
-    case "DB_PUT":
+    case "DB_PUT": {
       await dbPut(msg.data as Transcript)
       await dbEvictOldest(MAX_TRANSCRIPTS)
-      sendToHost({ type: "PUT", data: msg.data })
+      const ack = await sendToHostAck({ type: "PUT", data: msg.data })
+      if (!ack.ok && ack.error !== "host not available") {
+        log("[MindRelay] host PUT failed:", ack.error)
+      }
       updateBadge().catch(console.error)
       maybeBackup().catch(console.error)
-      return
+      // ok: IndexedDB saved. hostSaved: native host also confirmed.
+      // Callers treat ok:true as "saved" even when the host is not installed.
+      return { ok: true, hostSaved: ack.ok, id: ack.id }
+    }
     case "DB_DELETE":
       await dbDelete(msg.id as string)
       sendToHost({ type: "DELETE", id: msg.id })
@@ -188,6 +244,10 @@ async function handleMessage(msg: {
       return
     case "DB_FIND_BY_URL":
       return dbFindByUrl(msg.url as string)
+    case "OPEN_APP": {
+      const ack = await sendToHostAck({ type: "OPEN_APP" })
+      return { ok: ack.ok, error: ack.error }
+    }
     default:
       return null
   }

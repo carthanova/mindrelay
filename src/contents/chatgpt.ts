@@ -105,8 +105,8 @@ async function captureAndSave(): Promise<void> {
   const timestamp = Date.now()
   const markdown = buildMarkdown("ChatGPT", title, messages, timestamp)
 
-  await saveTranscript({ source: "chatgpt", title, messages, markdown, timestamp, url: window.location.href })
-  showSaveToast()
+  const saved = await saveTranscript({ source: "chatgpt", title, messages, markdown, timestamp, url: window.location.href })
+  if (saved) showSaveToast()
 }
 
 // ─── Injection ────────────────────────────────────────────────────────────────
@@ -128,7 +128,7 @@ function tryInjectContext(inputEl: HTMLElement): boolean {
   if (newOnes.length === 0) return false
 
   const context = buildCombinedContext(newOnes)
-  const success = setEditableText(inputEl, `${context}\n\n---\n\n${userQuery}`)
+  const success = setEditableText(inputEl, `${userQuery}\n\n---\n\n${context}`)
   if (success) {
     newOnes.forEach(t => injectedIds.add(t.id))
     log("[MindRelay] ChatGPT: injected", newOnes.length, "transcripts via DOM")
@@ -180,7 +180,7 @@ chrome.runtime.onMessage.addListener((msg, sender) => {
     const inputEl = findElement(inputSelectors)
     if (!inputEl) { warn("[MindRelay] ChatGPT: popup inject — input not found"); return }
     const current = getEditableText(inputEl)
-    setEditableText(inputEl, `${msg.context}\n\n---\n\n${current}`)
+    setEditableText(inputEl, `${current}\n\n---\n\n${msg.context}`)
     log("[MindRelay] ChatGPT: injected from popup")
   }
 })

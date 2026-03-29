@@ -135,9 +135,9 @@ async function captureAndSave(): Promise<void> {
   const timestamp = Date.now()
   const markdown = buildMarkdown("Claude", title, messages, timestamp)
 
-  await saveTranscript({ source: "claude", title, messages, markdown, timestamp, url: window.location.href })
-  showSaveToast()
-  log("[MindRelay] saved:", title)
+  const saved = await saveTranscript({ source: "claude", title, messages, markdown, timestamp, url: window.location.href })
+  if (saved) showSaveToast()
+  log("[MindRelay] saved:", title, saved ? "" : "(storage error)")
 }
 
 // ─── Injection ────────────────────────────────────────────────────────────────
@@ -159,7 +159,7 @@ function tryInjectContext(inputEl: HTMLElement): boolean {
   if (newOnes.length === 0) return false
 
   const context = buildCombinedContext(newOnes)
-  const success = setEditableText(inputEl, `${context}\n\n---\n\n${userQuery}`)
+  const success = setEditableText(inputEl, `${userQuery}\n\n---\n\n${context}`)
   if (success) {
     newOnes.forEach(t => injectedIds.add(t.id))
     log("[MindRelay] Claude: injected", newOnes.length, "transcripts via DOM")
@@ -211,7 +211,7 @@ chrome.runtime.onMessage.addListener((msg, sender) => {
     const inputEl = findElement(inputSelectors)
     if (!inputEl) { warn("[MindRelay] Claude: popup inject — input not found"); return }
     const current = getEditableText(inputEl)
-    setEditableText(inputEl, `${msg.context}\n\n---\n\n${current}`)
+    setEditableText(inputEl, `${current}\n\n---\n\n${msg.context}`)
     log("[MindRelay] Claude: injected from popup")
   }
 })

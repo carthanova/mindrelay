@@ -106,6 +106,14 @@ export default function IndexPopup() {
     setSourceFilter("all")
   }
 
+  async function openApp() {
+    const result = await chrome.runtime.sendMessage({ type: "OPEN_APP" })
+    if (!result?.ok) {
+      // Native app not installed — fall back to the browser library tab
+      chrome.tabs.create({ url: chrome.runtime.getURL("tabs/library.html") })
+    }
+  }
+
 
   return (
     <div style={{
@@ -512,7 +520,7 @@ export default function IndexPopup() {
         )}
 
         <button
-          onClick={() => chrome.tabs.create({ url: chrome.runtime.getURL("tabs/library.html") })}
+          onClick={openApp}
           style={{
             width: "100%",
             background: "rgba(124,106,247,0.1)",

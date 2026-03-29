@@ -103,9 +103,9 @@ async function captureAndSave(): Promise<void> {
     const timestamp = Date.now()
     const markdown = buildMarkdown("Grok", title, messages, timestamp)
 
-    await saveTranscript({ source: "grok", title, messages, markdown, timestamp, url: sessionUrl })
-    showSaveToast()
-    log("[MindRelay] Grok saved:", title)
+    const saved = await saveTranscript({ source: "grok", title, messages, markdown, timestamp, url: sessionUrl })
+    if (saved) showSaveToast()
+    log("[MindRelay] Grok saved:", title, saved ? "" : "(storage error)")
   } catch (err) {
     console.error("[MindRelay] Grok captureAndSave error:", err)
   }
@@ -130,7 +130,7 @@ function tryInjectContext(inputEl: HTMLElement): boolean {
   if (newOnes.length === 0) return false
 
   const context = buildCombinedContext(newOnes)
-  const success = setEditableText(inputEl, `${context}\n\n---\n\n${userQuery}`)
+  const success = setEditableText(inputEl, `${userQuery}\n\n---\n\n${context}`)
   if (success) {
     newOnes.forEach(t => injectedIds.add(t.id))
     log("[MindRelay] Grok: injected", newOnes.length, "transcripts via DOM")
@@ -184,7 +184,7 @@ chrome.runtime.onMessage.addListener((msg, sender) => {
     const inputEl = findElement(inputSelectors)
     if (!inputEl) { warn("[MindRelay] Grok: popup inject — input not found"); return }
     const current = getEditableText(inputEl)
-    setEditableText(inputEl, `${msg.context}\n\n---\n\n${current}`)
+    setEditableText(inputEl, `${current}\n\n---\n\n${msg.context}`)
     log("[MindRelay] Grok: injected from popup")
   }
 })

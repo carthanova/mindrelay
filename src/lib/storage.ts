@@ -33,16 +33,21 @@ export async function getLatestTranscript(): Promise<Transcript | null> {
   return all?.[0] ?? null
 }
 
-export async function saveTranscript(data: Omit<Transcript, "id">): Promise<void> {
+export async function saveTranscript(data: Omit<Transcript, "id">): Promise<boolean> {
   const existing = data.url
     ? await send<Transcript | null>({ type: "DB_FIND_BY_URL", url: data.url })
     : null
 
-  if (existing) {
-    await send({ type: "DB_PUT", data: { ...data, id: existing.id } })
-  } else {
-    await send({ type: "DB_PUT", data: { ...data, id: `${data.source}_${Date.now()}` } })
-  }
+  const id = existing ? existing.id : `${data.source}_${Date.now()}`
+  const result = await send<{ ok: boolean; hostSaved: boolean; id?: string } | null>({
+    type: "DB_PUT",
+    data: { ...data, id }
+  })
+
+  // Return true when IndexedDB confirmed the save (ok: true).
+  // hostSaved tells callers whether the durable vault also confirmed —
+  // false when the native host is not installed, which is acceptable.
+  return result?.ok === true
 }
 
 export async function deleteTranscript(id: string): Promise<void> {
