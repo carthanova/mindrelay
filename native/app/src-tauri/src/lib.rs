@@ -42,6 +42,14 @@ fn try_setup_native_host(app: &tauri::App) -> Result<(), Box<dyn std::error::Err
             use std::os::unix::fs::PermissionsExt;
             std::fs::set_permissions(&host_dst, std::fs::Permissions::from_mode(0o755))?;
         }
+        // Ad-hoc sign so macOS allows the binary to run as a standalone process
+        // outside the app bundle (required on Apple Silicon with SIP enabled).
+        #[cfg(target_os = "macos")]
+        {
+            let _ = std::process::Command::new("codesign")
+                .args(["--force", "--sign", "-", host_dst.to_str().unwrap_or("")])
+                .output();
+        }
     }
 
     // Write the Chrome native messaging manifest JSON
