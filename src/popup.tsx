@@ -154,7 +154,11 @@ export default function IndexPopup() {
   }
 
   async function openApp() {
-    await chrome.runtime.sendMessage({ type: "OPEN_APP" })
+    // Open via URL scheme — works regardless of native messaging connection state.
+    // Falls back to native messaging if the scheme isn't registered yet.
+    chrome.tabs.create({ url: "mindrelay://open" }).catch(() => {
+      chrome.runtime.sendMessage({ type: "OPEN_APP" }).catch(() => {})
+    })
   }
 
 
