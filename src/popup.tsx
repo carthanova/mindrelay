@@ -64,23 +64,54 @@ export default function IndexPopup() {
   }, [showClearMenu])
 
   useEffect(() => {
+    let pollTimer: ReturnType<typeof setInterval> | null = null
+
+    // Trigger an immediate vault-check sync so that if the user switched
+    // vaults in the app, the popup reflects the new vault's conversations
+    // without any manual steps.
+    chrome.runtime.sendMessage({ type: "VAULT_CHECK" }).catch(() => {})
+
     getAllTranscripts().then((data) => {
       setTranscripts(data)
       setLoading(false)
-      // If empty, the startup sync may still be in progress — retry a few times
-      // so conversations appear without the user needing to close/reopen the popup.
+
       if (data.length === 0) {
-        const retries = [1500, 4000, 9000]
-        retries.forEach((delay) => {
-          setTimeout(() => {
-            getAllTranscripts().then((fresh) => {
-              if (fresh.length > 0) setTranscripts(fresh)
-            }).catch(() => {})
-          }, delay)
-        })
+        // Poll every 2 s for up to 60 s while startup sync may be in progress.
+        // Stops as soon as data appears.
+        let elapsed = 0
+        pollTimer = setInterval(() => {
+          elapsed += 2000
+          getAllTranscripts().then((fresh) => {
+            if (fresh.length > 0) {
+              setTranscripts(fresh)
+              if (pollTimer) clearInterval(pollTimer)
+            } else if (elapsed >= 60_000) {
+              if (pollTimer) clearInterval(pollTimer)
+            }
+          }).catch(() => {
+            if (pollTimer) clearInterval(pollTimer)
+          })
+        }, 2000)
       }
     })
+
+    // Reload whenever background completes a sync (vault switch or startup pull).
+    const onSyncComplete = (msg: { type?: string }) => {
+      if (msg.type !== "SYNC_COMPLETE") return
+      getAllTranscripts().then((fresh) => {
+        setTranscripts(fresh)
+        setLoading(false)
+        if (pollTimer) { clearInterval(pollTimer); pollTimer = null }
+      }).catch(() => {})
+    }
+    chrome.runtime.onMessage.addListener(onSyncComplete)
+
     getHostStatus().then(setHostStatus).catch(() => {})
+
+    return () => {
+      if (pollTimer) clearInterval(pollTimer)
+      chrome.runtime.onMessage.removeListener(onSyncComplete)
+    }
   }, [])
 
   function showStatus(msg: string) {
@@ -123,11 +154,7 @@ export default function IndexPopup() {
   }
 
   async function openApp() {
-    const result = await chrome.runtime.sendMessage({ type: "OPEN_APP" })
-    if (!result?.ok) {
-      // Native app not installed — fall back to the browser library tab
-      chrome.tabs.create({ url: chrome.runtime.getURL("tabs/library.html") })
-    }
+    await chrome.runtime.sendMessage({ type: "OPEN_APP" })
   }
 
 
@@ -151,7 +178,7 @@ export default function IndexPopup() {
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
             <img src={icon} width={18} height={18} style={{ borderRadius: 4 }} />
-            <span style={{ fontWeight: 700, fontSize: 14, color: "#fff", letterSpacing: "-0.01em" }}>MindRelay</span>
+            <span style={{ fontWeight: 700, fontSize: 14, color: "#fff", letterSpacing: "-0.01em" }}>Mindrelay</span>
             {transcripts.length > 0 && (
               <span style={{
                 fontSize: 11,
@@ -240,8 +267,8 @@ export default function IndexPopup() {
           )}
         </div>
 
-        {/* Search */}
-        <div style={{ position: "relative", marginBottom: presentSources.length > 0 ? 10 : 0 }}>
+        {/* Search — only shown when there are conversations */}
+        <div style={{ position: "relative", marginBottom: presentSources.length > 0 ? 10 : 0, display: transcripts.length > 0 ? undefined : "none" }}>
           <input
             type="text"
             placeholder="Search memories..."
@@ -298,6 +325,69 @@ export default function IndexPopup() {
         )}
       </div>
 
+      {/* ── First-time / download prompt (no app + no data) ── */}
+      {!loading && hostStatus && !hostStatus.available && transcripts.length === 0 && (
+        <div style={{ padding: "24px 16px", textAlign: "center" }}>
+          <div style={{ marginBottom: 14 }}>
+            <img src={icon} width={44} height={44} style={{ borderRadius: 12 }} />
+          </div>
+          <div style={{ fontSize: 15, fontWeight: 700, color: "#fff", marginBottom: 6, letterSpacing: "-0.02em" }}>
+            One more step
+          </div>
+          <div style={{ fontSize: 12, color: "#666", lineHeight: 1.6, marginBottom: 20 }}>
+            Mindrelay needs the desktop app to save and sync your AI conversations. Download it to get started.
+          </div>
+          <button
+            onClick={() => chrome.tabs.create({ url: "https://mindrelay.com/download" })}
+            style={{
+              width: "100%",
+              background: "linear-gradient(135deg, #7c6af7, #4285f4)",
+              border: "none",
+              borderRadius: 10,
+              padding: "11px 0",
+              color: "#fff",
+              fontSize: 13,
+              fontWeight: 600,
+              cursor: "pointer",
+              marginBottom: 10,
+              letterSpacing: "-0.01em"
+            }}
+          >
+            Download Mindrelay app →
+          </button>
+          <div style={{ display: "flex", flexDirection: "column", gap: 8, textAlign: "left", marginTop: 16 }}>
+            {[
+              { n: "①", title: "Download the app", sub: "Free · Mac & Windows · No account needed" },
+              { n: "②", title: "Start a conversation", sub: "Claude · ChatGPT · Gemini · Grok" },
+              { n: "③", title: "Your context follows you", sub: "Automatically, across every platform." }
+            ].map(({ n, title, sub }) => (
+              <div key={n} style={{ display: "flex", alignItems: "flex-start", gap: 12, padding: "9px 12px", background: "rgba(255,255,255,0.02)", borderRadius: 10, border: "1px solid #1e1e2e" }}>
+                <span style={{ fontSize: 15, flexShrink: 0, marginTop: 1 }}>{n}</span>
+                <div>
+                  <div style={{ fontSize: 12, color: "#d0d0e0", fontWeight: 500, marginBottom: 2 }}>{title}</div>
+                  <div style={{ fontSize: 11, color: "#444" }}>{sub}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* App not connected banner — only shown when user has existing conversations */}
+      {!loading && hostStatus && !hostStatus.available && transcripts.length > 0 && transcripts.length < hostStatus.warnThreshold && (
+        <div style={{ padding: "8px 14px", background: "rgba(124,106,247,0.06)", borderBottom: "1px solid rgba(124,106,247,0.12)", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+          <span style={{ fontSize: 11, color: "#666", lineHeight: 1.4 }}>
+            Open the Mindrelay app to sync your vault.
+          </span>
+          <button
+            onClick={openApp}
+            style={{ fontSize: 11, fontWeight: 600, color: "#7c6af7", background: "transparent", border: "1px solid rgba(124,106,247,0.3)", borderRadius: 6, padding: "4px 10px", cursor: "pointer", whiteSpace: "nowrap", flexShrink: 0 }}
+          >
+            Open app →
+          </button>
+        </div>
+      )}
+
       {/* ── Limit banners (only shown when native app is not installed) ── */}
       {!loading && hostStatus && !hostStatus.available && transcripts.length >= hostStatus.maxTranscripts && (
         <div style={{ padding: "10px 14px", background: "rgba(204,85,85,0.08)", borderBottom: "1px solid rgba(204,85,85,0.2)" }}>
@@ -305,13 +395,13 @@ export default function IndexPopup() {
             Limit reached — new conversations won't be saved
           </div>
           <div style={{ fontSize: 11, color: "#666", lineHeight: 1.5, marginBottom: 8 }}>
-            You've hit the {hostStatus.maxTranscripts}-conversation limit. Install the MindRelay desktop app for unlimited local storage and to unlock the full product.
+            You've hit the {hostStatus.maxTranscripts}-conversation limit. Install the Mindrelay desktop app for unlimited local storage and to unlock the full product.
           </div>
           <button
             onClick={openApp}
             style={{ fontSize: 11, fontWeight: 600, color: "#fff", background: "linear-gradient(135deg, #7c6af7, #4285f4)", border: "none", borderRadius: 6, padding: "5px 12px", cursor: "pointer" }}
           >
-            Get the MindRelay app →
+            Get the Mindrelay app →
           </button>
         </div>
       )}
@@ -337,37 +427,8 @@ export default function IndexPopup() {
           </div>
         )}
 
-        {!loading && transcripts.length === 0 && (
+        {!loading && transcripts.length === 0 && (hostStatus === null || hostStatus.available) && (
           <div style={{ padding: "20px 16px 24px", textAlign: "center" }}>
-
-            {/* Recovery banner */}
-            <div
-              onClick={() => chrome.tabs.create({ url: chrome.runtime.getURL("tabs/library.html") })}
-              style={{
-                background: "rgba(124,106,247,0.08)",
-                border: "1px solid rgba(124,106,247,0.3)",
-                borderRadius: 10,
-                padding: "14px 16px",
-                marginBottom: 20,
-                cursor: "pointer",
-                textAlign: "left",
-                display: "flex",
-                alignItems: "center",
-                gap: 12
-              }}
-            >
-              <div style={{ fontSize: 22, flexShrink: 0 }}>💾</div>
-              <div style={{ flex: 1 }}>
-                <div style={{ fontSize: 13, fontWeight: 600, color: "#a78bfa", marginBottom: 3 }}>
-                  Recover your memories
-                </div>
-                <div style={{ fontSize: 11, color: "#555", lineHeight: 1.5 }}>
-                  Had conversations before? Open the library to restore from backup.
-                </div>
-              </div>
-              <div style={{ fontSize: 11, color: "#7c6af7", flexShrink: 0 }}>Open →</div>
-            </div>
-
             <div style={{ marginBottom: 12 }}>
               <img src={icon} width={40} height={40} style={{ borderRadius: 10 }} />
             </div>
@@ -378,7 +439,7 @@ export default function IndexPopup() {
               across every platform.
             </div>
 
-            <div style={{ display: "flex", flexDirection: "column", gap: 10, textAlign: "left", marginBottom: 16 }}>
+            <div style={{ display: "flex", flexDirection: "column", gap: 10, textAlign: "left" }}>
               {[
                 { n: "①", title: "Start a conversation", sub: "Claude · ChatGPT · Gemini · Grok" },
                 { n: "②", title: "It saves automatically", sub: "No setup. No copy-paste." },
@@ -393,22 +454,6 @@ export default function IndexPopup() {
                 </div>
               ))}
             </div>
-
-            <button
-              onClick={() => chrome.tabs.create({ url: chrome.runtime.getURL("tabs/library.html") })}
-              style={{
-                background: "rgba(124,106,247,0.08)",
-                border: "1px solid rgba(124,106,247,0.2)",
-                color: "#7c6af7",
-                borderRadius: 8,
-                padding: "7px 16px",
-                fontSize: 12,
-                cursor: "pointer",
-                width: "100%"
-              }}
-            >
-              Import existing memories
-            </button>
           </div>
         )}
 
@@ -455,9 +500,30 @@ export default function IndexPopup() {
                 }}>
                   {t.source}
                 </span>
-                <span style={{ fontSize: 10, color: "#3a3a4a", marginLeft: "auto" }}>
-                  {timeAgo(t.timestamp)}
-                </span>
+                <div style={{
+                  marginLeft: "auto",
+                  opacity: isHovered ? 1 : 0,
+                  transition: "opacity 0.12s",
+                  pointerEvents: isHovered ? "auto" : "none"
+                }}>
+                  <button
+                    onClick={(e) => handleDelete(t.id, e)}
+                    style={{
+                      background: "none",
+                      border: "none",
+                      color: "#cc5555",
+                      cursor: "pointer",
+                      fontSize: 13,
+                      fontWeight: 700,
+                      WebkitTextStroke: "0.4px #cc5555",
+                      padding: "2px 5px",
+                      borderRadius: 4,
+                      lineHeight: 1
+                    }}
+                  >
+                    ✕
+                  </button>
+                </div>
               </div>
 
               {/* Row 2: title */}
@@ -487,33 +553,14 @@ export default function IndexPopup() {
                 {snippet(t)}
               </div>
 
-              {/* Row 4: count + delete button */}
+              {/* Row 4: count + timestamp */}
               <div style={{ display: "flex", alignItems: "center", marginTop: 7, gap: 4 }}>
                 <span style={{ fontSize: 10, color: "#2e2e3e" }}>
                   {t.messages.length} {t.messages.length === 1 ? "message" : "messages"}
                 </span>
-                <div style={{
-                  marginLeft: "auto",
-                  opacity: isHovered ? 1 : 0,
-                  transition: "opacity 0.12s",
-                  pointerEvents: isHovered ? "auto" : "none"
-                }}>
-                  <button
-                    onClick={(e) => handleDelete(t.id, e)}
-                    style={{
-                      background: "none",
-                      border: "none",
-                      color: "#cc5555",
-                      cursor: "pointer",
-                      fontSize: 13,
-                      padding: "2px 5px",
-                      borderRadius: 4,
-                      lineHeight: 1
-                    }}
-                  >
-                    ✕
-                  </button>
-                </div>
+                <span style={{ fontSize: 10, color: "#3a3a4a", marginLeft: "auto" }}>
+                  {timeAgo(t.timestamp)}
+                </span>
               </div>
 
               {/* Expanded preview */}
@@ -579,7 +626,7 @@ export default function IndexPopup() {
             cursor: "pointer"
           }}
         >
-          Open library
+          Open Library
         </button>
 
       </div>

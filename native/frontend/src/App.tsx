@@ -1,6 +1,8 @@
-import { open } from "@tauri-apps/plugin-shell"
+import { open as openDialog } from "@tauri-apps/plugin-dialog"
+import { open as openUrl } from "@tauri-apps/plugin-shell"
 import { invoke } from "@tauri-apps/api/core"
-import { useEffect, useMemo, useRef, useState } from "react"
+import { listen } from "@tauri-apps/api/event"
+import { useEffect, useMemo, useState } from "react"
 import {
   buildMarkdown,
   clearAllTranscripts,
@@ -118,14 +120,25 @@ export default function App() {
   const [confirmClearSource, setConfirmClearSource] = useState<string | null>(null)
   const [confirmClearAll, setConfirmClearAll] = useState(false)
   const [vaultPath, setVaultPath] = useState("")
-  const [editingVault, setEditingVault] = useState(false)
-  const [vaultDraft, setVaultDraft] = useState("")
   const [vaultStatus, setVaultStatus] = useState<string | null>(null)
   const [backingUp, setBackingUp] = useState(false)
   const [syncing, setSyncing] = useState(false)
   const [showFirstRun, setShowFirstRun] = useState(false)
+  const [firstRunStep, setFirstRunStep] = useState<1 | 2>(1)
   const [firstRunDraft, setFirstRunDraft] = useState("")
-  const vaultInputRef = useRef<HTMLInputElement>(null)
+  const [extDismissed, setExtDismissed] = useState(() => !!localStorage.getItem("mindrelay_ext_dismissed"))
+  const [vaults, setVaults] = useState<{ name: string; path: string }[]>([])
+  const [showVaultMenu, setShowVaultMenu] = useState(false)
+  const [creatingVault, setCreatingVault] = useState(false)
+  const [newVaultName, setNewVaultName] = useState("")
+  const [renamingVaultPath, setRenamingVaultPath] = useState<string | null>(null)
+  const [renameValue, setRenameValue] = useState("")
+
+  function loadVaults() {
+    invoke<{ name: string; path: string }[]>("get_vaults")
+      .then(setVaults)
+      .catch(() => {})
+  }
 
   useEffect(() => {
     invoke<string>("get_vault_path").then((p) => {
@@ -133,11 +146,8 @@ export default function App() {
       setFirstRunDraft(p)
     }).catch(() => {})
     invoke<boolean>("is_first_run").then((yes) => { if (yes) setShowFirstRun(true) }).catch(() => {})
+    loadVaults()
   }, [])
-
-  useEffect(() => {
-    if (editingVault) vaultInputRef.current?.focus()
-  }, [editingVault])
 
   async function handleSyncToVault() {
     if (syncing) return
@@ -176,24 +186,9 @@ export default function App() {
     try {
       const confirmed = await invoke<string>("set_vault_path", { path: trimmed })
       setVaultPath(confirmed)
-      setShowFirstRun(false)
+      setFirstRunStep(2)
       setVaultStatus("Vault ready — your AI conversations will be saved here.")
       setTimeout(() => setVaultStatus(null), 4000)
-    } catch (err) {
-      setVaultStatus(`Error: ${err}`)
-      setTimeout(() => setVaultStatus(null), 4000)
-    }
-  }
-
-  async function handleSaveVaultPath() {
-    const trimmed = vaultDraft.trim()
-    if (!trimmed || trimmed === vaultPath) { setEditingVault(false); return }
-    try {
-      const confirmed = await invoke<string>("set_vault_path", { path: trimmed })
-      setVaultPath(confirmed)
-      setEditingVault(false)
-      setVaultStatus("Vault location updated")
-      setTimeout(() => setVaultStatus(null), 2500)
     } catch (err) {
       setVaultStatus(`Error: ${err}`)
       setTimeout(() => setVaultStatus(null), 4000)
@@ -209,6 +204,21 @@ export default function App() {
     return () => clearInterval(interval)
   }, [])
 
+  // Reload conversations and vault state when the user switches vaults
+  useEffect(() => {
+    let unlisten: (() => void) | undefined
+    listen<string>("vault-switched", (event) => {
+      setLoading(true)
+      setSelected(null)
+      setVaultPath(event.payload)
+      loadVaults()
+      getAllTranscripts()
+        .then((data) => { setTranscripts(data); setLoading(false) })
+        .catch(() => setLoading(false))
+    }).then((fn) => { unlisten = fn })
+    return () => { unlisten?.() }
+  }, [])
+
   useEffect(() => {
     if (!showInjectMenu) return
     const close = () => setShowInjectMenu(false)
@@ -222,6 +232,13 @@ export default function App() {
     document.addEventListener("click", close)
     return () => document.removeEventListener("click", close)
   }, [showClearMenu])
+
+  useEffect(() => {
+    if (!showVaultMenu) return
+    const close = () => { setShowVaultMenu(false); setCreatingVault(false); setNewVaultName("") }
+    document.addEventListener("click", close)
+    return () => document.removeEventListener("click", close)
+  }, [showVaultMenu])
 
   const storageInfo = useMemo(() => {
     if (transcripts.length === 0) return "0 KB"
@@ -354,28 +371,62 @@ export default function App() {
       {showFirstRun && (
         <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.75)", zIndex: 200, display: "flex", alignItems: "center", justifyContent: "center" }}>
           <div style={{ background: "#12121f", border: "1px solid rgba(124,106,247,0.35)", borderRadius: 18, padding: "36px 40px", maxWidth: 460, width: "90%", boxShadow: "0 24px 64px rgba(0,0,0,0.6)" }}>
-            <div style={{ fontSize: 32, marginBottom: 14, textAlign: "center" }}>🧠</div>
-            <div style={{ fontSize: 20, fontWeight: 700, color: "#fff", marginBottom: 8, textAlign: "center", letterSpacing: "-0.02em" }}>Welcome to MindRelay</div>
-            <div style={{ fontSize: 13, color: "#888", lineHeight: 1.6, marginBottom: 24, textAlign: "center" }}>
-              Your AI conversations are saved locally to a vault folder. Context from past chats is automatically injected into new ones — across Claude, ChatGPT, Gemini, and Grok.
+            {/* Step indicator dots */}
+            <div style={{ display: "flex", justifyContent: "center", alignItems: "center", gap: 8, marginBottom: 20 }}>
+              <span style={{ fontSize: 11, color: firstRunStep === 1 ? "#a78bfa" : "#444" }}>1</span>
+              <div style={{ width: 8, height: 8, borderRadius: "50%", background: firstRunStep === 1 ? "#a78bfa" : "#444" }} />
+              <div style={{ width: 24, height: 1, background: "#2a2a3a" }} />
+              <div style={{ width: 8, height: 8, borderRadius: "50%", background: firstRunStep === 2 ? "#a78bfa" : "#333" }} />
+              <span style={{ fontSize: 11, color: firstRunStep === 2 ? "#a78bfa" : "#444" }}>2</span>
             </div>
-            <div style={{ marginBottom: 20 }}>
-              <div style={{ fontSize: 12, color: "#a78bfa", fontWeight: 600, marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.05em" }}>Vault location</div>
-              <input
-                value={firstRunDraft}
-                onChange={(e) => setFirstRunDraft(e.target.value)}
-                onKeyDown={(e) => { if (e.key === "Enter") handleFirstRunConfirm() }}
-                style={{ width: "100%", background: "#1e1e2e", border: "1px solid rgba(124,106,247,0.3)", borderRadius: 8, padding: "10px 12px", color: "#e0e0e0", fontSize: 13, fontFamily: "monospace", outline: "none", boxSizing: "border-box" }}
-                spellCheck={false}
-              />
-              <div style={{ fontSize: 11, color: "#444", marginTop: 6 }}>You can change this later in the app settings.</div>
-            </div>
-            <button
-              onClick={handleFirstRunConfirm}
-              style={{ width: "100%", background: "linear-gradient(135deg, #7c6af7, #4285f4)", border: "none", borderRadius: 10, padding: "12px 0", color: "#fff", fontSize: 14, fontWeight: 600, cursor: "pointer", letterSpacing: "-0.01em" }}
-            >
-              Set up vault →
-            </button>
+            <div style={{ fontSize: 11, color: "#555", textAlign: "center", marginBottom: 14, textTransform: "uppercase", letterSpacing: "0.06em" }}>Step {firstRunStep} of 2</div>
+
+            {firstRunStep === 1 ? (
+              <>
+                <div style={{ fontSize: 32, marginBottom: 14, textAlign: "center" }}>🧠</div>
+                <div style={{ fontSize: 20, fontWeight: 700, color: "#fff", marginBottom: 8, textAlign: "center", letterSpacing: "-0.02em" }}>Welcome to Mindrelay</div>
+                <div style={{ fontSize: 13, color: "#888", lineHeight: 1.6, marginBottom: 24, textAlign: "center" }}>
+                  Your AI conversations are saved locally to a vault folder. Context from past chats is automatically injected into new ones — across Claude, ChatGPT, Gemini, and Grok.
+                </div>
+                <div style={{ marginBottom: 20 }}>
+                  <div style={{ fontSize: 12, color: "#a78bfa", fontWeight: 600, marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.05em" }}>Vault location</div>
+                  <input
+                    value={firstRunDraft}
+                    onChange={(e) => setFirstRunDraft(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === "Enter") handleFirstRunConfirm() }}
+                    style={{ width: "100%", background: "#1e1e2e", border: "1px solid rgba(124,106,247,0.3)", borderRadius: 8, padding: "10px 12px", color: "#e0e0e0", fontSize: 13, fontFamily: "monospace", outline: "none", boxSizing: "border-box" }}
+                    spellCheck={false}
+                  />
+                  <div style={{ fontSize: 11, color: "#444", marginTop: 6 }}>You can change this later in the app settings.</div>
+                </div>
+                <button
+                  onClick={handleFirstRunConfirm}
+                  style={{ width: "100%", background: "linear-gradient(135deg, #7c6af7, #4285f4)", border: "none", borderRadius: 10, padding: "12px 0", color: "#fff", fontSize: 14, fontWeight: 600, cursor: "pointer", letterSpacing: "-0.01em" }}
+                >
+                  Continue →
+                </button>
+              </>
+            ) : (
+              <>
+                <div style={{ fontSize: 32, marginBottom: 14, textAlign: "center" }}>🧩</div>
+                <div style={{ fontSize: 20, fontWeight: 700, color: "#fff", marginBottom: 8, textAlign: "center", letterSpacing: "-0.02em" }}>Install the Chrome Extension</div>
+                <div style={{ fontSize: 13, color: "#888", lineHeight: 1.6, marginBottom: 28, textAlign: "center" }}>
+                  The Mindrelay extension captures your AI conversations from Claude, ChatGPT, Gemini, and Grok. The app and extension work together — you need both.
+                </div>
+                <button
+                  onClick={() => openUrl("https://chrome.google.com/webstore/detail/mindrelay").catch(() => {})}
+                  style={{ width: "100%", background: "linear-gradient(135deg, #7c6af7, #4285f4)", border: "none", borderRadius: 10, padding: "12px 0", color: "#fff", fontSize: 14, fontWeight: 600, cursor: "pointer", letterSpacing: "-0.01em", marginBottom: 12 }}
+                >
+                  Get the extension →
+                </button>
+                <button
+                  onClick={() => setShowFirstRun(false)}
+                  style={{ display: "block", width: "100%", background: "transparent", border: "none", color: "#555", fontSize: 13, cursor: "pointer", padding: "6px 0" }}
+                >
+                  I already have it →
+                </button>
+              </>
+            )}
           </div>
         </div>
       )}
@@ -398,7 +449,7 @@ export default function App() {
       <div style={{ padding: "13px 28px", borderBottom: "1px solid #1e1e2e", display: "flex", alignItems: "center", gap: 16, background: "#0d0d1a", position: "sticky", top: 0, zIndex: 10, flexShrink: 0 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8, marginRight: 4 }}>
           <img src="/icon.png" width={20} height={20} style={{ borderRadius: 4 }} />
-          <span style={{ fontWeight: 700, fontSize: 16, color: "#fff", letterSpacing: "-0.01em" }}>MindRelay</span>
+          <span style={{ fontWeight: 700, fontSize: 16, color: "#fff", letterSpacing: "-0.01em" }}>Mindrelay</span>
           <span style={{ fontSize: 12, color: "#333", marginLeft: 2 }}>/ Library</span>
         </div>
 
@@ -435,12 +486,204 @@ export default function App() {
               {injectStatus}
             </span>
           )}
-          <button
-            onClick={() => { if (vaultPath) open(vaultPath) }}
-            style={{ background: "rgba(124,106,247,0.1)", border: "1px solid rgba(124,106,247,0.25)", color: "#7c6af7", borderRadius: 7, padding: "6px 14px", fontSize: 12, cursor: "pointer" }}
-          >
-            Open Vault
-          </button>
+          <div style={{ position: "relative" }}>
+            <button
+              onClick={(e) => { e.stopPropagation(); setShowVaultMenu((v) => !v) }}
+              style={{ background: "rgba(124,106,247,0.1)", border: "1px solid rgba(124,106,247,0.25)", color: "#7c6af7", borderRadius: 7, padding: "6px 14px", fontSize: 12, cursor: "pointer", display: "flex", alignItems: "center", gap: 6 }}
+            >
+              <span>Vault</span>
+              <span style={{ fontSize: 9, opacity: 0.7 }}>▾</span>
+            </button>
+            {showVaultMenu && (
+              <div onClick={(e) => e.stopPropagation()} style={{ position: "absolute", top: "calc(100% + 6px)", right: 0, background: "#161625", border: "1px solid #252535", borderRadius: 10, overflow: "hidden", zIndex: 100, minWidth: 260, boxShadow: "0 12px 32px rgba(0,0,0,0.5)" }}>
+                {/* Header */}
+                <div style={{ padding: "10px 14px 8px", borderBottom: "1px solid #1e1e2e" }}>
+                  <div style={{ fontSize: 10, color: "#555", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 4 }}>Active vault</div>
+                  <div style={{ fontSize: 12, color: "#a78bfa", fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    {vaultPath ? (vaults.find((v) => v.path === vaultPath)?.name ?? vaultPath.split("/").pop()) : "…"}
+                  </div>
+                  <div style={{ fontSize: 10, color: "#2a2a3a", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", marginTop: 2 }}>{vaultPath}</div>
+                </div>
+
+                {/* Open in Finder */}
+                <button
+                  onClick={() => { invoke("open_vault_folder").catch(() => {}); setShowVaultMenu(false) }}
+                  style={{ display: "block", width: "100%", textAlign: "left", background: "transparent", border: "none", borderBottom: "1px solid #1e1e2e", color: "#888", padding: "9px 14px", fontSize: 12, cursor: "pointer" }}
+                  onMouseEnter={(e) => (e.currentTarget.style.background = "#1e1e35")}
+                  onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
+                >
+                  Open in Finder ↗
+                </button>
+
+                {/* Other vaults */}
+                {vaults.filter((v) => v.path !== vaultPath).length > 0 && (
+                  <>
+                    <div style={{ padding: "6px 14px 4px", fontSize: 10, color: "#333", textTransform: "uppercase", letterSpacing: "0.06em" }}>Switch vault</div>
+                    {vaults.filter((v) => v.path !== vaultPath).map((v) => (
+                      renamingVaultPath === v.path ? (
+                        <div key={v.path} style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 14px", borderBottom: "1px solid #161625" }} onClick={(e) => e.stopPropagation()}>
+                          <input
+                            autoFocus
+                            value={renameValue}
+                            onChange={(e) => setRenameValue(e.target.value)}
+                            onKeyDown={async (e) => {
+                              if (e.key === "Escape") { setRenamingVaultPath(null); setRenameValue(""); return }
+                              if (e.key !== "Enter") return
+                              const trimmed = renameValue.trim()
+                              if (!trimmed) return
+                              await invoke("rename_vault", { path: v.path, name: trimmed }).catch(() => {})
+                              loadVaults()
+                              setRenamingVaultPath(null)
+                              setRenameValue("")
+                            }}
+                            onBlur={async () => {
+                              const trimmed = renameValue.trim()
+                              if (trimmed) {
+                                await invoke("rename_vault", { path: v.path, name: trimmed }).catch(() => {})
+                                loadVaults()
+                              }
+                              setRenamingVaultPath(null)
+                              setRenameValue("")
+                            }}
+                            style={{ flex: 1, background: "#0d0d1a", border: "1px solid #7c6af7", borderRadius: 5, color: "#ddd", fontSize: 12, padding: "4px 8px", outline: "none" }}
+                          />
+                        </div>
+                      ) : (
+                        <button
+                          key={v.path}
+                          onClick={async () => {
+                            try {
+                              const confirmed = await invoke<string>("switch_vault", { path: v.path })
+                              setVaultPath(confirmed)
+                              loadVaults()
+                              setVaultStatus(`Switched to "${v.name}"`)
+                              setTimeout(() => setVaultStatus(null), 2500)
+                            } catch (err) {
+                              setVaultStatus(`Error: ${err}`)
+                              setTimeout(() => setVaultStatus(null), 4000)
+                            }
+                            setShowVaultMenu(false)
+                          }}
+                          style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", textAlign: "left", background: "transparent", border: "none", borderBottom: "1px solid #161625", color: "#ccc", padding: "8px 14px", fontSize: 12, cursor: "pointer" }}
+                          onMouseEnter={(e) => (e.currentTarget.style.background = "#1e1e35")}
+                          onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
+                        >
+                          <span style={{ fontSize: 10 }}>📁</span>
+                          <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{v.name}</span>
+                          <span
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              setRenamingVaultPath(v.path)
+                              setRenameValue(v.name)
+                            }}
+                            title="Rename vault"
+                            style={{ fontSize: 10, color: "#333", cursor: "pointer", padding: "0 2px" }}
+                            onMouseEnter={(e) => (e.currentTarget.style.color = "#a78bfa")}
+                            onMouseLeave={(e) => (e.currentTarget.style.color = "#333")}
+                          >✎</span>
+                          <span
+                            onClick={async (e) => {
+                              e.stopPropagation()
+                              await invoke("remove_vault", { path: v.path }).catch(() => {})
+                              loadVaults()
+                            }}
+                            title="Remove from list"
+                            style={{ fontSize: 10, color: "#333", cursor: "pointer", padding: "0 2px" }}
+                            onMouseEnter={(e) => (e.currentTarget.style.color = "#cc5555")}
+                            onMouseLeave={(e) => (e.currentTarget.style.color = "#333")}
+                          >✕</span>
+                        </button>
+                      )
+                    ))}
+                  </>
+                )}
+
+                {/* Divider */}
+                <div style={{ borderTop: "1px solid #1e1e2e" }} />
+
+                {/* Add existing folder */}
+                <button
+                  onClick={async () => {
+                    const selected = await openDialog({ directory: true, multiple: false, title: "Choose vault folder" }).catch(() => null)
+                    if (!selected || typeof selected !== "string") return
+                    try {
+                      const confirmed = await invoke<string>("add_vault", { path: selected })
+                      setVaultPath(confirmed)
+                      loadVaults()
+                      setVaultStatus(`Vault added: "${selected.split("/").pop()}"`)
+                      setTimeout(() => setVaultStatus(null), 3000)
+                    } catch (err) {
+                      setVaultStatus(`Error: ${err}`)
+                      setTimeout(() => setVaultStatus(null), 4000)
+                    }
+                    setShowVaultMenu(false)
+                  }}
+                  style={{ display: "block", width: "100%", textAlign: "left", background: "transparent", border: "none", borderBottom: "1px solid #161625", color: "#888", padding: "9px 14px", fontSize: 12, cursor: "pointer" }}
+                  onMouseEnter={(e) => (e.currentTarget.style.background = "#1e1e35")}
+                  onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
+                >
+                  + Add existing folder
+                </button>
+
+                {/* Create new vault */}
+                {creatingVault ? (
+                  <div style={{ padding: "8px 14px", display: "flex", gap: 6 }} onClick={(e) => e.stopPropagation()}>
+                    <input
+                      autoFocus
+                      value={newVaultName}
+                      onChange={(e) => setNewVaultName(e.target.value)}
+                      onKeyDown={async (e) => {
+                        if (e.key === "Escape") { setCreatingVault(false); setNewVaultName(""); return }
+                        if (e.key !== "Enter") return
+                        const name = newVaultName.trim()
+                        if (!name) return
+                        try {
+                          const confirmed = await invoke<string>("create_vault", { name })
+                          setVaultPath(confirmed)
+                          loadVaults()
+                          setVaultStatus(`Created vault "${name}"`)
+                          setTimeout(() => setVaultStatus(null), 3000)
+                        } catch (err) {
+                          setVaultStatus(`Error: ${err}`)
+                          setTimeout(() => setVaultStatus(null), 4000)
+                        }
+                        setCreatingVault(false); setNewVaultName(""); setShowVaultMenu(false)
+                      }}
+                      placeholder="Vault name…"
+                      style={{ flex: 1, background: "#0d0d1a", border: "1px solid #7c6af7", borderRadius: 5, color: "#ddd", fontSize: 12, padding: "5px 8px", outline: "none" }}
+                    />
+                    <button
+                      onClick={async () => {
+                        const name = newVaultName.trim()
+                        if (!name) return
+                        try {
+                          const confirmed = await invoke<string>("create_vault", { name })
+                          setVaultPath(confirmed)
+                          loadVaults()
+                          setVaultStatus(`Created vault "${name}"`)
+                          setTimeout(() => setVaultStatus(null), 3000)
+                        } catch (err) {
+                          setVaultStatus(`Error: ${err}`)
+                          setTimeout(() => setVaultStatus(null), 4000)
+                        }
+                        setCreatingVault(false); setNewVaultName(""); setShowVaultMenu(false)
+                      }}
+                      style={{ background: "rgba(124,106,247,0.2)", border: "1px solid rgba(124,106,247,0.4)", color: "#a78bfa", borderRadius: 5, padding: "5px 10px", fontSize: 11, cursor: "pointer" }}
+                    >Create</button>
+                  </div>
+                ) : (
+                  <button
+                    onClick={(e) => { e.stopPropagation(); setCreatingVault(true) }}
+                    style={{ display: "block", width: "100%", textAlign: "left", background: "transparent", border: "none", color: "#888", padding: "9px 14px", fontSize: 12, cursor: "pointer" }}
+                    onMouseEnter={(e) => (e.currentTarget.style.background = "#1e1e35")}
+                    onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
+                  >
+                    + Create new vault
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
           <div style={{ position: "relative" }}>
             <button
               onClick={(e) => { e.stopPropagation(); setShowClearMenu((v) => !v) }}
@@ -499,6 +742,28 @@ export default function App() {
             })}
           </div>
 
+          {/* Extension install hint banner */}
+          {!extDismissed && (
+            <div style={{ borderTop: "1px solid #1e1e2e", padding: "7px 16px", display: "flex", alignItems: "center", gap: 8, background: "rgba(124,106,247,0.04)" }}>
+              <span style={{ fontSize: 10, color: "#555", flex: 1, lineHeight: 1.4 }}>
+                Don&apos;t forget to install the{" "}
+                <span
+                  onClick={() => openUrl("https://chrome.google.com/webstore/detail/mindrelay").catch(() => {})}
+                  style={{ color: "#7c6af7", cursor: "pointer", textDecoration: "underline" }}
+                >
+                  Chrome extension
+                </span>
+              </span>
+              <button
+                onClick={() => { localStorage.setItem("mindrelay_ext_dismissed", "1"); setExtDismissed(true) }}
+                style={{ background: "transparent", border: "none", color: "#444", fontSize: 14, cursor: "pointer", padding: "0 2px", lineHeight: 1, flexShrink: 0 }}
+                title="Dismiss"
+              >
+                ×
+              </button>
+            </div>
+          )}
+
           {/* Sidebar footer: storage indicator + vault path */}
           <div style={{ borderTop: "1px solid #1e1e2e", flexShrink: 0 }}>
             {/* Storage row */}
@@ -514,55 +779,30 @@ export default function App() {
                   {vaultStatus}
                 </div>
               )}
-              {editingVault ? (
-                <div style={{ display: "flex", gap: 5 }}>
-                  <input
-                    ref={vaultInputRef}
-                    value={vaultDraft}
-                    onChange={(e) => setVaultDraft(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") handleSaveVaultPath()
-                      if (e.key === "Escape") setEditingVault(false)
-                    }}
-                    placeholder="/path/to/vault"
-                    style={{ flex: 1, background: "#161625", border: "1px solid #7c6af7", borderRadius: 5, color: "#ddd", fontSize: 11, padding: "4px 7px", outline: "none" }}
-                  />
-                  <button onClick={handleSaveVaultPath} style={{ background: "rgba(124,106,247,0.15)", border: "1px solid rgba(124,106,247,0.4)", color: "#a78bfa", borderRadius: 5, padding: "4px 8px", fontSize: 11, cursor: "pointer" }}>Save</button>
-                  <button onClick={() => setEditingVault(false)} style={{ background: "transparent", border: "1px solid #252535", color: "#555", borderRadius: 5, padding: "4px 8px", fontSize: 11, cursor: "pointer" }}>✕</button>
+              <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 6, flex: 1, minWidth: 0, padding: "3px 6px" }}>
+                  <span style={{ fontSize: 11, color: "#3a3a3a" }}>📁</span>
+                  <span style={{ fontSize: 10, color: "#333", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }} title={vaultPath}>
+                    {vaultPath ? (vaults.find((v) => v.path === vaultPath)?.name ?? vaultPath.split("/").pop()) : "…"}
+                  </span>
                 </div>
-              ) : (
-                <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
-                  <div
-                    onClick={() => { setVaultDraft(vaultPath); setEditingVault(true) }}
-                    title="Click to change vault folder"
-                    style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer", padding: "3px 6px", borderRadius: 5, border: "1px solid transparent", flex: 1, minWidth: 0 }}
-                    onMouseEnter={(e) => (e.currentTarget.style.borderColor = "#252535")}
-                    onMouseLeave={(e) => (e.currentTarget.style.borderColor = "transparent")}
-                  >
-                    <span style={{ fontSize: 11, color: "#3a3a3a" }}>📁</span>
-                    <span style={{ fontSize: 10, color: "#333", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>
-                      {vaultPath || "…"}
-                    </span>
-                    <span style={{ fontSize: 9, color: "#2a2a2a", flexShrink: 0 }}>edit</span>
-                  </div>
-                  <button
-                    onClick={handleSyncToVault}
-                    disabled={syncing}
-                    title="Copy all conversations to vault/records/"
-                    style={{ background: "transparent", border: "1px solid #1e1e2e", color: syncing ? "#2a2a2a" : "#333", borderRadius: 5, padding: "3px 7px", fontSize: 10, cursor: syncing ? "default" : "pointer", flexShrink: 0 }}
-                  >
-                    {syncing ? "…" : "Sync"}
-                  </button>
-                  <button
-                    onClick={handleBackupVault}
-                    disabled={backingUp}
-                    title="Create a timestamped backup of the vault"
-                    style={{ background: "transparent", border: "1px solid #1e1e2e", color: backingUp ? "#2a2a2a" : "#333", borderRadius: 5, padding: "3px 7px", fontSize: 10, cursor: backingUp ? "default" : "pointer", flexShrink: 0 }}
-                  >
-                    {backingUp ? "…" : "Backup"}
-                  </button>
-                </div>
-              )}
+                <button
+                  onClick={handleSyncToVault}
+                  disabled={syncing}
+                  title="Copy all conversations to vault/records/"
+                  style={{ background: "transparent", border: "1px solid #1e1e2e", color: syncing ? "#2a2a2a" : "#333", borderRadius: 5, padding: "3px 7px", fontSize: 10, cursor: syncing ? "default" : "pointer", flexShrink: 0 }}
+                >
+                  {syncing ? "…" : "Sync"}
+                </button>
+                <button
+                  onClick={handleBackupVault}
+                  disabled={backingUp}
+                  title="Create a timestamped backup of the vault"
+                  style={{ background: "transparent", border: "1px solid #1e1e2e", color: backingUp ? "#2a2a2a" : "#333", borderRadius: 5, padding: "3px 7px", fontSize: 10, cursor: backingUp ? "default" : "pointer", flexShrink: 0 }}
+                >
+                  {backingUp ? "…" : "Backup"}
+                </button>
+              </div>
             </div>
           </div>
         </div>

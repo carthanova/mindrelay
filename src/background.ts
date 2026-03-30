@@ -1,6 +1,6 @@
 import { dbClear, dbCount, dbDelete, dbDeleteBySource, dbEvictByAge, dbEvictOldest, dbFindByUrl, dbGetAll, dbPut } from "./lib/db"
 import { log } from "./lib/log"
-import { sendToHost, sendToHostAck } from "./lib/native-messaging"
+import { resetHostConnection, sendToHost, sendToHostAck } from "./lib/native-messaging"
 import type { Transcript } from "./lib/storage"
 import { fetchAndCacheConfig } from "./lib/config"
 
@@ -91,24 +91,49 @@ async function runDbRenameMigration(): Promise<void> {
 
 runDbRenameMigration().catch(console.error)
 
+// ─── Vault-switch detection key ──────────────────────────────────────────────
+
+const LAST_VAULT_KEY = "mindrelay_last_vault_path"
+
 // ─── Startup sync: bidirectional IndexedDB ↔ native vault ────────────────────
 // On every service-worker startup:
-//   Pull: host → IDB  (vault records the extension doesn't have yet)
-//   Push: IDB → host  (extension records the vault doesn't have yet)
-//
-// One GET_ALL call covers both directions. After the initial full push the
-// ongoing per-save DB_PUT keeps the two sides in sync, so subsequent startups
-// typically push 0 records.
+//   1. Ask host for active vault path.
+//   2. If vault changed since last sync → clear IDB first (full swap).
+//   3. Pull: host → IDB  (vault records the extension doesn't have yet)
+//   4. Push: IDB → host  (extension records the vault doesn't have yet)
 
 async function syncWithHost(): Promise<void> {
-  const ack = await sendToHostAck({ type: "GET_ALL" }, 30_000)
-  if (!ack.ok) {
-    if (ack.error !== "host not available") {
-      log("[MindRelay] startup sync failed:", ack.error)
+  // Step 1: detect vault change
+  const vaultAck = await sendToHostAck({ type: "GET_VAULT_PATH" }, 5_000)
+  if (!vaultAck.ok) {
+    if (vaultAck.error !== "host not available") {
+      log("[MindRelay] startup sync failed:", vaultAck.error)
     }
     return
   }
   hostAvailable = true
+
+  const currentVault = (vaultAck as unknown as { vaultPath?: string }).vaultPath ?? ""
+  const stored = await chrome.storage.local.get(LAST_VAULT_KEY)
+  const lastVault: string = stored[LAST_VAULT_KEY] ?? ""
+
+  if (currentVault && currentVault !== lastVault) {
+    // Vault switched — kill the persistent host connection so the next
+    // GET_ALL starts a fresh host process that opens the new vault's DB.
+    log(`[MindRelay] vault changed from "${lastVault}" to "${currentVault}" — resetting host and clearing IDB`)
+    resetHostConnection()
+    await dbClear()
+    updateBadge().catch(console.error)  // immediately reflect 0 on the badge
+    await chrome.storage.local.set({ [LAST_VAULT_KEY]: currentVault })
+    chrome.runtime.sendMessage({ type: "SYNC_COMPLETE", count: 0 }).catch(() => {})
+  }
+
+  // Step 2: pull all from host
+  const ack = await sendToHostAck({ type: "GET_ALL" }, 30_000)
+  if (!ack.ok) {
+    log("[MindRelay] startup sync GET_ALL failed:", ack.error)
+    return
+  }
 
   const hostTranscripts = (ack.data as Transcript[] | undefined) ?? []
   const hostIds = new Set(hostTranscripts.map((t) => t.id))
@@ -118,11 +143,13 @@ async function syncWithHost(): Promise<void> {
 
   // Pull: vault → IDB
   const toImport = hostTranscripts.filter((t) => !localIds.has(t.id))
-  for (const t of toImport) await dbPut(t)
+  await Promise.all(toImport.map((t) => dbPut(t)))
   if (toImport.length > 0) {
     log(`[MindRelay] sync: pulled ${toImport.length} from vault into IDB`)
-    updateBadge().catch(console.error)
+    chrome.runtime.sendMessage({ type: "SYNC_COMPLETE", count: toImport.length }).catch(() => {})
   }
+  // Always update badge after sync so it reflects the new vault's count exactly
+  updateBadge().catch(console.error)
 
   // Push: IDB → vault (covers data captured before the native host was installed)
   const toPush = localTranscripts.filter((t) => !hostIds.has(t.id))
@@ -141,6 +168,14 @@ async function syncWithHost(): Promise<void> {
 }
 
 syncWithHost().catch(console.error)
+
+// ─── Live vault-change detection ─────────────────────────────────────────────
+// Poll every 5 s while the service worker is alive so the badge and popup
+// update within seconds of switching vaults in the app — no popup open needed.
+// The 1-minute alarm (below) is a fallback for when the worker is suspended.
+setInterval(() => {
+  syncWithHost().catch(console.error)
+}, 5_000)
 
 // ─── Auto-backup ─────────────────────────────────────────────────────────────
 
@@ -173,6 +208,7 @@ async function performAutoBackup(): Promise<void> {
 // ─── Remote selector config ───────────────────────────────────────────────────
 
 const CONFIG_ALARM = "mindrelay-config-refresh"
+const VAULT_SYNC_ALARM = "mindrelay-vault-sync"
 
 // Fetch on startup and schedule daily refresh
 fetchAndCacheConfig().catch(console.error)
@@ -191,9 +227,19 @@ chrome.alarms.get(BACKUP_ALARM, (alarm) => {
   }
 })
 
+// ─── Periodic vault-change check (every 1 minute) ────────────────────────────
+// Catches vault switches even when the popup is closed.
+
+chrome.alarms.get(VAULT_SYNC_ALARM, (alarm) => {
+  if (!alarm) {
+    chrome.alarms.create(VAULT_SYNC_ALARM, { periodInMinutes: 1 })
+  }
+})
+
 chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === BACKUP_ALARM) performAutoBackup().catch(console.error)
   if (alarm.name === CONFIG_ALARM) fetchAndCacheConfig().catch(console.error)
+  if (alarm.name === VAULT_SYNC_ALARM) syncWithHost().catch(console.error)
 })
 
 // Also backup whenever new data is saved (triggered after DB_PUT)
@@ -305,6 +351,10 @@ async function handleMessage(msg: {
     }
     case "HOST_PING":
       return { available: hostAvailable, count: await dbCount(), warnThreshold: WARN_THRESHOLD, maxTranscripts: MAX_TRANSCRIPTS }
+    case "VAULT_CHECK":
+      // Called by the popup on open — runs a full vault-aware sync immediately.
+      syncWithHost().catch(console.error)
+      return { ok: true }
     default:
       return null
   }

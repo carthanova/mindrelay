@@ -76,7 +76,7 @@ pub struct Vault {
 }
 
 impl Vault {
-    /// Open the vault at `~/Documents/MindRelayVault/`.
+    /// Open the vault at `~/Documents/Mindrelay/My Vault`.
     pub fn open_default() -> Result<Self, VaultError> {
         Self::open(default_vault_path())
     }
@@ -316,7 +316,7 @@ fn now_ms() -> i64 {
 ///
 /// Order of preference:
 /// 1. Custom path stored in the vault-location pointer file (user has changed it)
-/// 2. `~/Documents/MindRelayVault/` (factory default)
+/// 2. `~/Documents/Mindrelay/My Vault` (factory default)
 pub fn default_vault_path() -> PathBuf {
     if let Some(custom) = read_vault_location() {
         return custom;
@@ -324,7 +324,8 @@ pub fn default_vault_path() -> PathBuf {
     UserDirs::new()
         .and_then(|u| u.document_dir().map(PathBuf::from))
         .unwrap_or_else(|| PathBuf::from("."))
-        .join("MindRelayVault")
+        .join("Mindrelay")
+        .join("My Vault")
 }
 
 // ─── Vault location pointer ───────────────────────────────────────────────────

@@ -85,13 +85,16 @@ export async function getHostStatus(): Promise<HostStatus> {
   }
 }
 
+/** Transcript returned by the native host search, with an optional BM25 score. */
+export type ScoredTranscript = Transcript & { _score?: number }
+
 export async function searchTranscripts(
   query: string,
   sessionId: string,
   topK = 5
-): Promise<Transcript[]> {
+): Promise<ScoredTranscript[]> {
   try {
-    const resp = await send<{ ok: boolean; results?: Transcript[] }>({
+    const resp = await send<{ ok: boolean; results?: ScoredTranscript[] }>({
       type: "HOST_SEARCH",
       query,
       sessionId,
@@ -109,16 +112,6 @@ export async function searchTranscripts(
  */
 export function endSession(sessionId: string): void {
   chrome.runtime.sendMessage({ type: "HOST_SESSION_END", sessionId }).catch(() => {})
-}
-
-export async function importTranscripts(incoming: Transcript[]): Promise<number> {
-  const existing = await getAllTranscripts()
-  const existingIds = new Set(existing.map((t) => t.id))
-  const fresh = incoming.filter((t) => !existingIds.has(t.id))
-  for (const t of fresh) {
-    await send({ type: "DB_PUT", data: t })
-  }
-  return fresh.length
 }
 
 // ─── Formatters (pure — no storage calls) ────────────────────────────────────

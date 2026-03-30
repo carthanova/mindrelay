@@ -362,6 +362,13 @@ fn dispatch(
             }
         }
 
+        "GET_VAULT_PATH" => {
+            let path = mindrelay_core::read_vault_location()
+                .map(|p| p.to_string_lossy().into_owned())
+                .unwrap_or_default();
+            vec![json!({"ok": true, "vaultPath": path})]
+        }
+
         "OPEN_APP" => vec![open_app()],
 
         "RELEVANCE_SEARCH" => {

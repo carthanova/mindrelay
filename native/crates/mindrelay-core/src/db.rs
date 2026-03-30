@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use directories::ProjectDirs;
 use rusqlite::{Connection, Result, params};
@@ -44,11 +44,37 @@ const SELECT_FIELDS: &str =
 
 impl Database {
     pub fn open_default() -> Result<Self> {
-        let path = default_db_path();
+        let path = if let Some(vault) = crate::read_vault_location() {
+            vault_db_path(&vault)
+        } else {
+            default_db_path()
+        };
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent).ok();
         }
-        Self::open(&path)
+        // One-time migration: copy legacy global DB into the very first vault DB.
+        // A flag file prevents this from running again, so new/empty vaults
+        // always start empty instead of inheriting all historical conversations.
+        let migration_flag = crate::vault_pointer_path()
+            .parent()
+            .map(|p| p.join(".db_migrated"))
+            .unwrap_or_else(|| PathBuf::from(".db_migrated"));
+        let is_new = !path.exists();
+        let db = Self::open(&path)?;
+        if is_new && !migration_flag.exists() {
+            let global = default_db_path();
+            if global.exists() {
+                if let Ok(global_db) = Self::open(&global) {
+                    if let Ok(transcripts) = global_db.get_all() {
+                        for t in transcripts {
+                            db.put(&t).ok();
+                        }
+                    }
+                }
+            }
+            std::fs::write(&migration_flag, b"1").ok();
+        }
+        Ok(db)
     }
 
     pub fn open(path: &PathBuf) -> Result<Self> {
@@ -297,11 +323,51 @@ impl Database {
 
 // ─── FTS query sanitizer ──────────────────────────────────────────────────────
 
-/// Strip FTS5 operator characters and reserved keywords from a raw user query
-/// so it can be passed safely to `MATCH`. Returns `None` if nothing remains.
+/// Strip FTS5 operator characters, reserved keywords, stop words, and short
+/// noise words from a raw user query so it can be passed safely to `MATCH`.
+/// Returns `None` if nothing meaningful remains.
 fn sanitize_fts_query(raw: &str) -> Option<String> {
-    // FTS5 reserved operator keywords — must be excluded as standalone tokens
+    // FTS5 reserved operator keywords
     const FTS5_OPERATORS: &[&str] = &["AND", "OR", "NOT"];
+
+    // Short tech/domain terms that are meaningful despite being ≤3 chars.
+    // Mirrors the KEEP_SHORT set in the TypeScript TF fallback.
+    const KEEP_SHORT: &[&str] = &[
+        "ai","ml","api","sql","css","js","ts","ui","ux","db","io","vm","os",
+        "ci","cd","aws","gpt","llm","seo","crm","orm","ide","git","npm","pip",
+        "dev","mvp","sdk","vue","jsx","tsx","dom","url","cli","ssh","jwt","env",
+        "src","lib","app","bot","key","tag","log","run","fix","bug","pr","qa",
+    ];
+
+    // High-frequency words with low discriminative value — mirrors the TypeScript
+    // STOP_WORDS set so both search paths filter identically.
+    const STOP_WORDS: &[&str] = &[
+        // articles, prepositions, conjunctions
+        "the","a","an","is","it","in","on","at","to","for","of","and","or","but",
+        // pronouns
+        "i","my","me","you","your","we","us","our","he","she","his","her","they","them","their",
+        // question / filler words
+        "what","how","can","why","who","which","where","when","please","want","need",
+        // modal / auxiliary verbs
+        "would","could","should","have","will","been","has","had","was","were",
+        "are","be","do","did","does","get","got","let","put","set","use","used",
+        // common low-signal verbs
+        "make","made","take","took","come","came","know","think","look","give","find",
+        "tell","ask","seem","feel","try","leave","call","help","show","back","keep",
+        "going","getting","making","giving","finding","showing","helping","looking","trying",
+        // common low-signal adjectives / adverbs
+        "also","just","like","than","then","still","even","much","very","now","here",
+        "there","new","well","good","best","better","after","into","over","both","each",
+        "more","most","other","some","such","only","same","while","being","about",
+        // demonstratives
+        "this","that","these","those",
+        // meta-language noise
+        "with","from","up","by","as","if","not","no","so","out","its","too","any",
+        // AI-conversation filler
+        "sure","okay","great","hello","hey","thanks","thank","sorry","yes","yeah","yep","nope",
+        "explain","describe","create","write","generate","list","example","give","provide",
+        "share","curious","question","answer","brief","quick","deep","dive","intro","introduction",
+    ];
 
     // Replace any char that is not alphanumeric, hyphen, or apostrophe with a space.
     let cleaned: String = raw
@@ -309,9 +375,20 @@ fn sanitize_fts_query(raw: &str) -> Option<String> {
         .map(|c| if c.is_alphanumeric() || c == '\'' || c == '-' { c } else { ' ' })
         .collect();
 
-    let terms: Vec<&str> = cleaned
+    let terms: Vec<String> = cleaned
         .split_whitespace()
-        .filter(|t| !FTS5_OPERATORS.contains(t))
+        .filter_map(|t| {
+            let lower = t.to_lowercase();
+            // Drop FTS5 operator keywords (case-sensitive in FTS5 syntax)
+            if FTS5_OPERATORS.contains(&t) { return None; }
+            // Keep known short tech terms
+            if KEEP_SHORT.contains(&lower.as_str()) { return Some(lower); }
+            // Drop words ≤ 3 chars (single chars, "it", "is", etc.)
+            if lower.len() <= 3 { return None; }
+            // Drop stop words
+            if STOP_WORDS.contains(&lower.as_str()) { return None; }
+            Some(lower)
+        })
         .collect();
 
     if terms.is_empty() { None } else { Some(terms.join(" ")) }
@@ -323,6 +400,11 @@ pub fn default_db_path() -> PathBuf {
     ProjectDirs::from("", "", "MindRelay")
         .map(|d| d.data_local_dir().join("memory.db"))
         .unwrap_or_else(|| PathBuf::from("memory.db"))
+}
+
+/// Returns the DB path stored inside a vault folder.
+pub fn vault_db_path(vault_path: &Path) -> PathBuf {
+    vault_path.join(".mindrelay").join("memory.db")
 }
 
 // ─── Tests ────────────────────────────────────────────────────────────────────

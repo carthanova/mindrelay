@@ -3,7 +3,7 @@ pub mod models;
 pub mod validate;
 pub mod vault;
 
-pub use db::{Database, SearchResult, default_db_path};
+pub use db::{Database, SearchResult, default_db_path, vault_db_path};
 pub use models::{Message, Transcript};
 pub use validate::{ValidationError, VALID_SOURCES};
 pub use vault::{

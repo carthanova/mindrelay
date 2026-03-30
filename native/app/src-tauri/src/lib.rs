@@ -1,10 +1,11 @@
 use mindrelay_core::{Database, Transcript};
-use tauri::Manager;
+use tauri::{Emitter, Manager};
 
 // ─── Extension IDs allowed to use the native host ────────────────────────────
 // Add the Chrome Web Store ID here once the extension is published.
 const EXTENSION_IDS: &[&str] = &[
-    "mgeflnillehbijonabanklcaikdijbfj", // dev (unpacked)
+    "mgeflnillehbijonabanklcaikdijbfj", // unpacked from build/chrome-mv3-dev
+    "eenchomclmclkgdkehjeokfagpmibioe", // unpacked from build/chrome-mv3-prod
 ];
 
 // ─── Auto-setup: register native messaging host on first launch ──────────────
@@ -30,12 +31,8 @@ fn try_setup_native_host(app: &tauri::App) -> Result<(), Box<dyn std::error::Err
     let host_dst = data_dir.join(host_filename);
     let manifest_path = chrome_manifest_path()?;
 
-    // Already registered — nothing to do
-    if host_dst.exists() && manifest_path.exists() {
-        return Ok(());
-    }
-
-    // Copy host binary out of app resources
+    // Copy host binary out of app resources (skip if already up-to-date)
+    // Always re-write the manifest so the allowed_origins list stays current.
     let resource_dir = app.path().resource_dir()?;
     let host_src = resource_dir.join(host_filename);
     if host_src.exists() {
@@ -164,6 +161,159 @@ fn register_windows_registry(
     Ok(())
 }
 
+// ─── Vaults registry ─────────────────────────────────────────────────────────
+
+#[derive(serde::Serialize, serde::Deserialize, Clone)]
+struct VaultEntry {
+    name: String,
+    path: String,
+}
+
+fn vaults_registry_path() -> std::path::PathBuf {
+    mindrelay_core::vault_pointer_path()
+        .with_file_name("vaults.json")
+}
+
+fn read_vaults() -> Vec<VaultEntry> {
+    let bytes = match std::fs::read(vaults_registry_path()) {
+        Ok(b) => b,
+        Err(_) => return Vec::new(),
+    };
+    serde_json::from_slice::<Vec<VaultEntry>>(&bytes).unwrap_or_default()
+}
+
+fn write_vaults(vaults: &[VaultEntry]) {
+    let path = vaults_registry_path();
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).ok();
+    }
+    if let Ok(json) = serde_json::to_string_pretty(vaults) {
+        std::fs::write(path, json).ok();
+    }
+}
+
+fn ensure_in_registry(path: &str) {
+    let mut vaults = read_vaults();
+    if !vaults.iter().any(|v| v.path == path) {
+        let name = std::path::Path::new(path)
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or(path)
+            .to_string();
+        vaults.push(VaultEntry { name, path: path.to_string() });
+        write_vaults(&vaults);
+    }
+}
+
+#[tauri::command]
+fn get_vaults() -> Vec<VaultEntry> {
+    let active = mindrelay_core::default_vault_path()
+        .to_string_lossy()
+        .into_owned();
+    // Always ensure active vault is in registry
+    ensure_in_registry(&active);
+    read_vaults()
+}
+
+#[tauri::command]
+fn add_vault(path: String, app: tauri::AppHandle) -> Result<String, String> {
+    let p = std::path::PathBuf::from(&path);
+    if !p.is_absolute() {
+        return Err("path must be absolute".into());
+    }
+    mindrelay_core::Vault::open(p.clone()).map_err(|e| e.to_string())?;
+    mindrelay_core::write_vault_location(&p).map_err(|e| e.to_string())?;
+    ensure_in_registry(&path);
+    app.emit("vault-switched", &path).ok();
+    Ok(path)
+}
+
+#[tauri::command]
+fn create_vault(name: String, app: tauri::AppHandle) -> Result<String, String> {
+    let name = name.trim().to_string();
+    if name.is_empty() { return Err("name cannot be empty".into()); }
+    let safe_name: String = name.chars()
+        .filter(|c| c.is_alphanumeric() || *c == ' ' || *c == '-' || *c == '_')
+        .collect::<String>()
+        .trim()
+        .to_string();
+    if safe_name.is_empty() { return Err("invalid vault name".into()); }
+
+    let home = std::env::var("HOME").map_err(|e| e.to_string())?;
+    let parent = std::path::PathBuf::from(home).join("Documents").join("Mindrelay");
+    std::fs::create_dir_all(&parent).map_err(|e| e.to_string())?;
+
+    let vault_path = parent.join(&safe_name);
+    mindrelay_core::Vault::open(vault_path.clone()).map_err(|e| e.to_string())?;
+    mindrelay_core::write_vault_location(&vault_path).map_err(|e| e.to_string())?;
+    let path_str = vault_path.to_string_lossy().into_owned();
+    ensure_in_registry(&path_str);
+    app.emit("vault-switched", &path_str).ok();
+    Ok(path_str)
+}
+
+#[tauri::command]
+fn switch_vault(path: String, app: tauri::AppHandle) -> Result<String, String> {
+    let p = std::path::PathBuf::from(&path);
+    mindrelay_core::Vault::open(p.clone()).map_err(|e| e.to_string())?;
+    mindrelay_core::write_vault_location(&p).map_err(|e| e.to_string())?;
+    ensure_in_registry(&path);
+    app.emit("vault-switched", &path).ok();
+    Ok(path)
+}
+
+#[tauri::command]
+fn remove_vault(path: String) -> Result<(), String> {
+    let mut vaults = read_vaults();
+    vaults.retain(|v| v.path != path);
+    write_vaults(&vaults);
+    Ok(())
+}
+
+#[tauri::command]
+fn rename_vault(path: String, name: String) -> Result<(), String> {
+    let name = name.trim().to_string();
+    if name.is_empty() { return Err("name cannot be empty".into()); }
+    let mut vaults = read_vaults();
+    if let Some(v) = vaults.iter_mut().find(|v| v.path == path) {
+        v.name = name;
+        write_vaults(&vaults);
+        Ok(())
+    } else {
+        Err("vault not found".into())
+    }
+}
+
+// ─── Vault folder commands ───────────────────────────────────────────────────
+
+/// Open the current vault directory in the OS file manager (Finder on macOS).
+/// Creates the directory first if it does not yet exist.
+#[tauri::command]
+fn open_vault_folder() -> Result<(), String> {
+    let path = mindrelay_core::default_vault_path();
+    std::fs::create_dir_all(&path).map_err(|e| e.to_string())?;
+
+    #[cfg(target_os = "macos")]
+    std::process::Command::new("open")
+        .arg(&path)
+        .spawn()
+        .map_err(|e| e.to_string())?;
+
+    #[cfg(target_os = "windows")]
+    std::process::Command::new("explorer")
+        .arg(&path)
+        .spawn()
+        .map_err(|e| e.to_string())?;
+
+    #[cfg(target_os = "linux")]
+    std::process::Command::new("xdg-open")
+        .arg(&path)
+        .spawn()
+        .map_err(|e| e.to_string())?;
+
+    Ok(())
+}
+
 // ─── First-run detection ─────────────────────────────────────────────────────
 
 /// Returns true when the user has never explicitly chosen a vault location.
@@ -270,7 +420,9 @@ fn backup_vault() -> Result<String, String> {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![
             get_all_transcripts,
             delete_transcript,
@@ -282,6 +434,13 @@ pub fn run() {
             sync_to_vault,
             backup_vault,
             is_first_run,
+            open_vault_folder,
+            get_vaults,
+            add_vault,
+            create_vault,
+            switch_vault,
+            remove_vault,
+            rename_vault,
         ])
         .setup(|app| {
             setup_native_host(app);

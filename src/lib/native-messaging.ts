@@ -162,6 +162,25 @@ function getPort(): chrome.runtime.Port | null {
   return port
 }
 
+// ─── Connection reset ────────────────────────────────────────────────────────
+
+/**
+ * Forcefully disconnect the host and clear the reconnect cooldown so the
+ * next sendToHostAck immediately starts a fresh host process.
+ * Use this when the active vault changes — the new process will open the
+ * correct vault's database via open_default().
+ */
+export function resetHostConnection(): void {
+  if (port) {
+    try { port.disconnect() } catch { /* ignore */ }
+    port = null
+  }
+  if (reconnectTimer) {
+    clearTimeout(reconnectTimer)
+    reconnectTimer = null
+  }
+}
+
 // ─── Public API ──────────────────────────────────────────────────────────────
 
 /**
