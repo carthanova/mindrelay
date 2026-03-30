@@ -126,7 +126,7 @@ fn open_app() -> Value {
     #[cfg(target_os = "macos")]
     {
         match std::process::Command::new("open")
-            .args(["-b", "com.mindrelay.desktop"])
+            .args(["-a", "Mindrelay"])
             .spawn()
         {
             Ok(_) => json!({"ok": true}),
